@@ -54,6 +54,12 @@ class GibbsPriors:
     mu_mean: float = 0.0
     mu_sd: float = 2.0
 
+    # Track evolution, per circuit, in seconds per unit of race fraction.
+    # Weakly informative and centred on zero: the sign is not assumed, because
+    # a circuit can get slower over a race (rising track temperature) as well
+    # as faster (rubber).
+    theta_sd: float = 3.0
+
     # Half-Cauchy scale on the between-circuit sd, one per coefficient slot
     # (offset, linear, quadratic).
     #
@@ -85,12 +91,15 @@ class PosteriorDraws:
     mu: np.ndarray  # (chain, draw, n_compounds, 3)
     tau2: np.ndarray  # (chain, draw, n_compounds, 3)
     phi: np.ndarray  # (chain, draw)
+    theta: np.ndarray  # (chain, draw, n_circuits) track evolution
     driver: np.ndarray  # (chain, draw, n_drivers, n_compounds)
     sigma2: np.ndarray  # (chain, draw)
     sigma_u2: np.ndarray  # (chain, draw)
     # (n_circuits, n_compounds, 3): which coefficients were actually sampled.
     # Everything else is a structural zero, not an estimate.
     active: np.ndarray = field(default_factory=lambda: np.ones((1, 1, 3), dtype=bool))
+    # (n_circuits, n_compounds) oldest tyre age observed, bounding extrapolation.
+    max_age: np.ndarray = field(default_factory=lambda: np.full((1, 1), 30.0))
     circuits: list[str] = field(default_factory=list)
     compounds: list[str] = field(default_factory=list)
     drivers: list[str] = field(default_factory=list)
@@ -209,7 +218,9 @@ def run_chain(
     y = design.y
     age = design.age
     fuel = design.fuel
+    progress = design.progress
     gi = design.group_idx
+    ci = design.circuit_idx
     cell_idx = design.circuit_idx * n_k + design.compound_idx
     du_idx = design.driver_idx * n_k + design.compound_idx
 
@@ -232,12 +243,27 @@ def run_chain(
 
     group_counts = np.bincount(gi, minlength=n_g).astype(float)
     group_counts[group_counts == 0] = 1.0
+    # Sufficient statistics for the joint (phi, theta) block. The two are
+    # exactly collinear within any one race -- fuel mass is an affine function
+    # of laps completed, so is race fraction -- which means updating them in
+    # separate Gibbs blocks makes the chain random-walk along a ridge instead
+    # of sampling it. Measured: Rhat 2.24 and ESS 19 with separate blocks. As
+    # one block it is a single 26-dimensional normal draw and mixes fine.
     fuel_ss = float(np.sum(fuel * fuel))
+    progress_ss = _group_sums(progress * progress, ci, n_c)
+    fuel_progress_cross = _group_sums(fuel * progress, ci, n_c)
     driver_age_ss = _group_sums(age * age, du_idx, n_d * n_k)
+
+    # Arrow-shaped prior precision: phi first, then one theta per circuit.
+    prior_prec_joint = np.concatenate(
+        [[1.0 / priors.fuel_sd**2], np.full(n_c, 1.0 / priors.theta_sd**2)]
+    )
+    prior_mean_joint = np.concatenate([[priors.fuel_mean], np.zeros(n_c)])
 
     # -- initial values, dispersed so R-hat is meaningful ------------------
     m = np.full(n_g, float(np.mean(y)))
     phi = float(priors.fuel_mean + priors.fuel_sd * rng.standard_normal())
+    theta = rng.normal(0.0, 0.5, size=n_c)
 
     # Only cells with data are ever updated, so an inactive cell keeps whatever
     # it was initialised to for the whole run. Dispersing those would leave
@@ -270,6 +296,7 @@ def run_chain(
         "mu": np.empty((n_kept, n_k, 3)),
         "tau2": np.empty((n_kept, n_k, 3)),
         "phi": np.empty(n_kept),
+        "theta": np.empty((n_kept, n_c)),
         "driver": np.empty((n_kept, n_d, n_k)),
         "sigma2": np.empty(n_kept),
         "sigma_u2": np.empty(n_kept),
@@ -280,22 +307,45 @@ def run_chain(
     for sweep in range(total):
         beta_fit = B[cell_idx, 0] + B[cell_idx, 1] * x1 + B[cell_idx, 2] * x2
         driver_fit = U[du_idx] * age
+        progress_fit = theta[ci] * progress
 
         # 1. race-driver intercepts -----------------------------------------
-        resid = y - phi * fuel - beta_fit - driver_fit
+        resid = y - phi * fuel - progress_fit - beta_fit - driver_fit
         group_mean = _group_sums(resid, gi, n_g) / group_counts
         post_var = sigma2 / group_counts
         m = group_mean + np.sqrt(post_var) * rng.standard_normal(n_g)
 
-        # 2. pooled fuel coefficient ----------------------------------------
+        # 2. fuel coefficient and per-circuit track evolution, jointly --------
+        #
+        # These two are what the identification argument in design.py turns on.
+        # Only their combination is pinned by the data within a race; the split
+        # between them comes from phi being one number shared by every circuit
+        # and carrying a physical prior, while theta is free per circuit. That
+        # makes the posterior a narrow ridge, which is exactly why they have to
+        # be drawn together.
         resid = y - m[gi] - beta_fit - driver_fit
-        prior_prec = 1.0 / priors.fuel_sd**2
-        prec = prior_prec + fuel_ss / sigma2
-        mean = (prior_prec * priors.fuel_mean + float(np.dot(fuel, resid)) / sigma2) / prec
-        phi = float(mean + rng.standard_normal() / np.sqrt(prec))
+
+        precision = np.zeros((n_c + 1, n_c + 1))
+        precision[0, 0] = fuel_ss / sigma2
+        precision[0, 1:] = fuel_progress_cross / sigma2
+        precision[1:, 0] = fuel_progress_cross / sigma2
+        precision[np.arange(1, n_c + 1), np.arange(1, n_c + 1)] = progress_ss / sigma2
+        precision[np.diag_indices(n_c + 1)] += prior_prec_joint
+
+        rhs = np.empty(n_c + 1)
+        rhs[0] = float(np.dot(fuel, resid)) / sigma2
+        rhs[1:] = _group_sums(progress * resid, ci, n_c) / sigma2
+        rhs += prior_prec_joint * prior_mean_joint
+
+        covariance = np.linalg.inv(precision)
+        covariance = 0.5 * (covariance + covariance.T)
+        joint = covariance @ rhs + np.linalg.cholesky(covariance) @ rng.standard_normal(n_c + 1)
+        phi = float(joint[0])
+        theta = joint[1:]
+        progress_fit = theta[ci] * progress
 
         # 3. per (circuit, compound) coefficients ---------------------------
-        resid = y - m[gi] - phi * fuel - driver_fit
+        resid = y - m[gi] - phi * fuel - progress_fit - driver_fit
         xtr = np.column_stack(
             [_group_sums(columns[a] * resid, cell_idx, n_cells) for a in range(3)]
         )
@@ -331,7 +381,7 @@ def run_chain(
 
         # 6. driver tyre-management slopes ----------------------------------
         beta_fit = B[cell_idx, 0] + B[cell_idx, 1] * x1 + B[cell_idx, 2] * x2
-        resid = y - m[gi] - phi * fuel - beta_fit
+        resid = y - m[gi] - phi * fuel - progress_fit - beta_fit
         xtr_u = _group_sums(age * resid, du_idx, n_d * n_k)
         prec_u = driver_age_ss / sigma2 + 1.0 / sigma_u2
         mean_u = (xtr_u / sigma2) / prec_u
@@ -347,7 +397,7 @@ def run_chain(
         aux_u = float(aux_u_arr)
 
         driver_fit = U[du_idx] * age
-        full_resid = y - m[gi] - phi * fuel - beta_fit - driver_fit
+        full_resid = y - m[gi] - phi * fuel - progress_fit - beta_fit - driver_fit
         sigma2_arr, aux_sigma_arr = _half_cauchy_variance(
             rng, float(np.dot(full_resid, full_resid)), float(n_obs), aux_sigma, priors.sigma_scale
         )
@@ -361,6 +411,7 @@ def run_chain(
                 store["mu"][kept] = mu
                 store["tau2"][kept] = tau2
                 store["phi"][kept] = phi
+                store["theta"][kept] = theta
                 store["driver"][kept] = U.reshape(n_d, n_k)
                 store["sigma2"][kept] = sigma2
                 store["sigma_u2"][kept] = sigma_u2
@@ -395,10 +446,12 @@ def sample(
         mu=stack("mu"),
         tau2=stack("tau2"),
         phi=stack("phi"),
+        theta=stack("theta"),
         driver=stack("driver"),
         sigma2=stack("sigma2"),
         sigma_u2=stack("sigma_u2"),
         active=design.active.copy(),
+        max_age=design.max_age.copy(),
         circuits=list(design.circuits),
         compounds=list(design.compounds),
         drivers=list(design.drivers),

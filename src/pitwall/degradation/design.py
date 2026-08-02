@@ -38,22 +38,40 @@ Three features of race data, in decreasing order of how much work they do.
    physically common and freeing the quantity that genuinely varies is what
    makes the separation stable rather than merely possible.
 
-What remains confounded, honestly
----------------------------------
+Track evolution, and why it needs its own term
+----------------------------------------------
 
-Track evolution. A circuit rubbers in over a race distance and lap times fall
-for reasons that have nothing to do with fuel. Within a race, "laps completed"
-is the only regressor either effect can load onto, so evolution and fuel burn
-are not separately identified from race data alone. This model attributes both
-to the fuel term, which biases the fuel coefficient upwards.
+A circuit rubbers in over a race distance and lap times fall for reasons that
+have nothing to do with fuel or tyres. Within a single race this is collinear
+with fuel burn: both are linear in laps completed.
 
-Two things keep that from contaminating the degradation estimates. The prior
-on the fuel coefficient is informative and physically motivated (roughly
-0.03 s per lap per kg), so the posterior cannot drift far to soak up
-evolution. And because evolution is common to the whole field while the
-contrasts that identify degradation are *between* cars at different tyre ages
-on the same lap, evolution largely cancels out of the degradation terms. The
-residual bias is discussed in DESIGN.md and quantified in the backtest.
+The first version of this model left it out, on the theory that the informative
+fuel prior would stop the fuel term absorbing it and that a field-wide effect
+would cancel out of the between-car contrasts anyway. That was wrong, and the
+way it was wrong is instructive. Compounds are not used at random points in a
+race: hards run the long middle and late stints, softs run early and in short
+bursts. So "late in the race" and "on the hard tyre" are strongly correlated,
+and any race-progress effect the model cannot represent gets attributed to
+whichever compound happens to run then. The symptom was a fitted hard tyre
+0.59s per lap *faster* than the medium at Melbourne, which is not a thing that
+happens, and downstream the optimiser started recommending three-stop
+soft-tyre strategies.
+
+The fix is a per-circuit race-progress coefficient, ``theta_c``. It is still
+collinear with fuel inside any one race, so the two are separated by their
+pooling structure rather than by the data in a single event:
+
+- ``phi``, the fuel coefficient, is one number shared by every circuit and
+  every season, and carries an informative physically-motivated prior. It
+  cannot chase circuit-specific behaviour.
+- ``theta_c`` is free per circuit and hierarchically pooled. It picks up
+  whatever race-progress effect that particular venue has.
+
+What is genuinely identified is therefore the *split between the common effect
+and the circuit-specific one*, not fuel and evolution as separate physical
+quantities. A circuit whose true evolution matches the field average will have
+part of it absorbed into ``phi``. This is stated plainly in DESIGN.md; the
+useful property is that neither one can contaminate the tyre terms any more.
 
 Model
 -----
@@ -63,6 +81,7 @@ race-driver group ``g``::
 
     t_i = m_g                                  race-driver base pace
         + phi * L_c * (F_i - Fbar)             fuel
+        + theta_c * (p_i - pbar)               track evolution at this circuit
         + gamma_{c,k}                          compound offset at this circuit
         + beta1_{c,k} * a_i                    linear degradation
         + beta2_{c,k} * a_i^2                  convex degradation / cliff
@@ -115,6 +134,7 @@ class DesignData:
     y: np.ndarray  # (N,) lap time in seconds
     age: np.ndarray  # (N,) tyre age, scaled
     fuel: np.ndarray  # (N,) circuit-scaled, centred fuel mass
+    progress: np.ndarray  # (N,) centred race fraction, for track evolution
     group_idx: np.ndarray  # (N,) race-driver
     circuit_idx: np.ndarray  # (N,)
     compound_idx: np.ndarray  # (N,)
@@ -128,6 +148,9 @@ class DesignData:
     # Column mask over the 3 coefficient slots per (circuit, compound):
     # False means the coefficient is held at zero rather than sampled.
     active: np.ndarray  # (n_circuits, n_compounds, 3) bool
+    # Oldest tyre age actually observed per (circuit, compound). Predictions
+    # beyond it are linear extrapolations rather than quadratic ones.
+    max_age: np.ndarray  # (n_circuits, n_compounds)
 
     age_scale_laps: float
     age_center_laps: float
@@ -240,12 +263,32 @@ def build_design(
     fuel_mean = float(fuel_kg.mean())
     fuel = (fuel_kg - fuel_mean) * circuit_scale[circuit_idx]
 
+    # Race progress, centred. Carried separately from fuel so a circuit's own
+    # track evolution has somewhere to go other than the compound offsets.
+    if "race_fraction" in work.columns:
+        raw_progress = work["race_fraction"].to_numpy(dtype=np.float64)
+    else:
+        raw_progress = np.zeros(len(work))
+    progress = raw_progress - float(raw_progress.mean())
+
     # Which coefficients are sampled. A (circuit, compound) cell with no laps
     # is left inactive so it contributes nothing to the hierarchy's variance
     # estimate; it is predicted from the population mean instead.
     n_c, n_k = len(circuits), len(compounds)
     observed = np.zeros((n_c, n_k), dtype=bool)
     observed[circuit_idx, compound_idx] = True
+
+    # Oldest tyre age each (circuit, compound) was actually run to. A quadratic
+    # fitted to stints that never exceeded 12 laps says nothing trustworthy
+    # about lap 35, and left unbounded it will happily predict a tyre getting
+    # faster or falling off a cliff that is not in the data. Recorded here and
+    # enforced at prediction time.
+    max_age = np.zeros((n_c, n_k))
+    np.maximum.at(max_age, (circuit_idx, compound_idx), age_laps)
+    # A cell with no data gets the pooled median, since its coefficients come
+    # from the population anyway.
+    pooled_max = float(np.median(max_age[observed])) if observed.any() else 25.0
+    max_age[~observed] = pooled_max
 
     active = np.zeros((n_c, n_k, 3), dtype=bool)
     active[:, :, COEF_OFFSET] = observed
@@ -260,6 +303,7 @@ def build_design(
         y=work["lap_time_s"].to_numpy(dtype=np.float64),
         age=age,
         fuel=fuel,
+        progress=progress,
         group_idx=group_idx,
         circuit_idx=circuit_idx,
         compound_idx=compound_idx,
@@ -269,6 +313,7 @@ def build_design(
         compounds=compounds,
         drivers=drivers,
         active=active,
+        max_age=max_age,
         age_scale_laps=float(age_scale_laps),
         age_center_laps=age_center,
         fuel_mean_kg=fuel_mean,

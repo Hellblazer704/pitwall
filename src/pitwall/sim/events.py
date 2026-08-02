@@ -81,6 +81,9 @@ class NeutralisationSchedule:
     def any_deployment(self) -> np.ndarray:
         return self.deploy_lap.any(axis=1)
 
+    def subset(self, mask: np.ndarray) -> NeutralisationSchedule:
+        return NeutralisationSchedule(regime=self.regime[mask], deploy_lap=self.deploy_lap[mask])
+
     def summary(self) -> dict[str, float]:
         sc_laps = float((self.regime == SAFETY_CAR).mean())
         vsc_laps = float((self.regime == VSC).mean())

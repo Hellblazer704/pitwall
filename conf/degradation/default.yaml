@@ -41,10 +41,15 @@ sampler:
   # more slowly than HMC would, so the budget is spent on draws rather than on
   # tuning. These settings clear Rhat < 1.01 and ESS > 400 on the full
   # four-season fit; a short run will not, and the diagnostics say so.
+  # The fuel coefficient and the per-circuit track-evolution terms are drawn
+  # in one joint block because they are exactly collinear within a race, but
+  # they stay correlated with the compound offsets, and that residual ridge is
+  # what sets the mixing rate. Gibbs sweeps are cheap here, so the budget goes
+  # on draws: these settings clear Rhat < 1.01 and ESS > 400 on the full fit.
   chains: 4
-  draws: 4000
-  warmup: 1500
-  thin: 1
+  draws: 16000
+  warmup: 3000
+  thin: 2
 
 priors:
   # Population-level (across-circuit) mean and spread for each compound's
@@ -56,6 +61,10 @@ priors:
   # [compound offset, linear wear, quadratic wear]. The quadratic is tight on
   # purpose; see the note in degradation/gibbs.py.
   tau_deg_scale: [0.50, 0.50, 0.15]
+  # Per-circuit track evolution, in seconds across a full race distance.
+  # Collinear with fuel inside a single race; the two are separated by the
+  # fuel coefficient being global and this one being per circuit.
+  track_evolution_sd: 3.0
   driver_sd_scale: 0.40    # half-Cauchy scale on driver random-effect sd
   sigma_scale: 0.50        # half-Cauchy scale on residual lap-time sd
 

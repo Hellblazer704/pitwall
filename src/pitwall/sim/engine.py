@@ -104,6 +104,32 @@ class EnsembleState:
     def shape(self) -> tuple[int, int]:
         return self.cum_time.shape  # type: ignore[return-value]
 
+    def subset(self, mask: np.ndarray) -> EnsembleState:
+        """The state for a subset of races, as an independent copy.
+
+        Used by the reactive policy to branch a decision on just the races that
+        are actually facing it.
+        """
+        return EnsembleState(
+            cum_time=self.cum_time[mask].copy(),
+            tyre_age=self.tyre_age[mask].copy(),
+            compound=self.compound[mask].copy(),
+            retired=self.retired[mask].copy(),
+            laps_done=self.laps_done[mask].copy(),
+            stops_done=self.stops_done[mask].copy(),
+            just_pitted=self.just_pitted[mask].copy(),
+        )
+
+    def assign(self, mask: np.ndarray, other: EnsembleState) -> None:
+        """Write ``other`` back into the rows selected by ``mask``."""
+        self.cum_time[mask] = other.cum_time
+        self.tyre_age[mask] = other.tyre_age
+        self.compound[mask] = other.compound
+        self.retired[mask] = other.retired
+        self.laps_done[mask] = other.laps_done
+        self.stops_done[mask] = other.stops_done
+        self.just_pitted[mask] = other.just_pitted
+
 
 @dataclass
 class EnsembleResult:
@@ -243,7 +269,6 @@ def simulate_ensemble(
     n_cars = params.n_cars
     race_laps = params.race_laps
     shape = (n_races, n_cars)
-    rows = np.arange(n_races)
 
     if pit_after_lap.ndim == 2:
         pit_plan = np.repeat(pit_after_lap[None, ...], n_races, axis=0)
@@ -272,6 +297,16 @@ def simulate_ensemble(
     posterior = params.posterior
     age_center, age_scale = posterior.age_center_laps, posterior.age_scale_laps
 
+    # Beyond the oldest tyre age this circuit and compound were actually run
+    # to, the fitted quadratic is pure extrapolation and can curve anywhere.
+    # Past that point the curve is continued linearly at the slope it had
+    # reached, which is a claim the data supports; a quadratic there is not.
+    if params.circuit in posterior.circuits:
+        max_age_row = posterior.max_age[posterior.circuits.index(params.circuit)]
+    else:
+        max_age_row = np.median(posterior.max_age, axis=0)
+    z_cap = (max_age_row - age_center) / age_scale  # (n_compounds,)
+
     burn_per_lap = params.fuel_start_mass_kg / max(race_laps, 1)
     last_lap = race_laps if stop_after_lap is None else min(stop_after_lap, race_laps)
 
@@ -280,11 +315,20 @@ def simulate_ensemble(
         alive = ~state.retired
 
         # -- 1. free-air lap time -------------------------------------------
-        z = (state.tyre_age - age_center) / age_scale
+        z_raw = (state.tyre_age - age_center) / age_scale
+        cap = z_cap[state.compound]
+        z = np.minimum(z_raw, cap)
+        overshoot = np.maximum(z_raw - cap, 0.0)
+
+        linear = np.take_along_axis(coef_linear, state.compound, axis=1)
+        quad = np.take_along_axis(coef_quad, state.compound, axis=1)
         deg = (
             np.take_along_axis(coef_offset, state.compound, axis=1)
-            + np.take_along_axis(coef_linear, state.compound, axis=1) * z
-            + np.take_along_axis(coef_quad, state.compound, axis=1) * z * z
+            + linear * z
+            + quad * z * z
+            # Linear continuation past the observed age range, at the slope the
+            # fitted curve had reached there.
+            + (linear + 2.0 * quad * z) * overshoot
         )
         fuel = params.fuel_s_per_kg * burn_per_lap * (race_laps - lap)
 
@@ -309,47 +353,57 @@ def simulate_ensemble(
             pits |= forced_pit[:, :, lap] if forced_pit.ndim == 3 else forced_pit
         pits &= alive
 
-        if pits.any():
-            stop_noise = rng.normal(0.0, params.stop_time_sd_s, size=shape)
-            botched = rng.random(shape) < params.botch_prob
-            botch_cost = botched * rng.exponential(params.botch_extra_mean_s, size=shape)
-            loss = params.pit_loss_s + stop_noise + botch_cost
+        # Drawn unconditionally, even on laps where nobody stops. Guarding this
+        # behind `if pits.any()` would make the number of random draws depend on
+        # the strategy being evaluated, which silently destroys the common
+        # random numbers the optimiser relies on: two candidates would then be
+        # compared against different sampled races and the difference between
+        # them would be mostly Monte Carlo noise.
+        stop_noise = rng.normal(0.0, params.stop_time_sd_s, size=shape)
+        botched = rng.random(shape) < params.botch_prob
+        botch_cost = botched * rng.exponential(params.botch_extra_mean_s, size=shape)
+        loss = params.pit_loss_s + stop_noise + botch_cost
 
-            discount = np.where(
-                regime == SAFETY_CAR,
-                params.sc_loss_multiplier,
-                np.where(regime == VSC, params.vsc_loss_multiplier, 1.0),
-            )
-            lap_time = lap_time + np.where(pits, loss * discount[:, None], 0.0)
+        discount = np.where(
+            regime == SAFETY_CAR,
+            params.sc_loss_multiplier,
+            np.where(regime == VSC, params.vsc_loss_multiplier, 1.0),
+        )
+        lap_time = lap_time + np.where(pits, loss * discount[:, None], 0.0)
 
         # -- 3 & 4. traffic and position resolution --------------------------
+        # The field is gathered into track order once, so the walk from the
+        # leader backwards touches contiguous columns instead of doing a
+        # fancy-index gather per car per lap. That indexing was the single
+        # hottest thing in the simulator; hoisting it out is worth about 4x.
         order = np.argsort(state.cum_time, axis=1, kind="stable")
-        free_air_time = lap_time.copy()
-        new_cum = state.cum_time + lap_time
+        cum_ord = np.take_along_axis(state.cum_time, order, axis=1)
+        time_ord = np.take_along_axis(lap_time, order, axis=1)
+        pitted_ord = np.take_along_axis(state.just_pitted, order, axis=1)
 
-        leader = order[:, 0]
-        behind_reference = new_cum[rows, leader]
+        resolved_ord = np.empty_like(cum_ord)
+        resolved_ord[:, 0] = cum_ord[:, 0] + time_ord[:, 0]
+        behind_reference = resolved_ord[:, 0]
+
+        noise = rng.random((n_races, max(n_cars - 1, 1)))
 
         for position in range(1, n_cars):
-            car = order[:, position]
-            ahead = order[:, position - 1]
-
-            start_gap = state.cum_time[rows, car] - state.cum_time[rows, ahead]
-            car_time = free_air_time[rows, car]
+            start_gap = cum_ord[:, position] - cum_ord[:, position - 1]
+            car_time = time_ord[:, position]
 
             # Dirty air, and the extra cost of rejoining into a pack.
             in_wake = (start_gap < params.dirty_air_threshold_s) & ~under_neutral
             penalty = _dirty_air_loss(start_gap, params)
-            penalty = penalty + state.just_pitted[rows, car] * params.emergence_penalty_s
+            penalty = penalty + pitted_ord[:, position] * params.emergence_penalty_s
             car_time = car_time + np.where(in_wake, penalty, 0.0)
 
-            unimpeded = state.cum_time[rows, car] + car_time
+            unimpeded = cum_ord[:, position] + car_time
             limit = behind_reference + params.min_following_gap_s
             blocked = unimpeded < limit
 
             # An overtake is only on if the follower is genuinely quicker, is
             # close enough to attack, and the race is green.
-            pace_delta = free_air_time[rows, ahead] - free_air_time[rows, car]
+            pace_delta = time_ord[:, position - 1] - time_ord[:, position]
             attacking = (
                 blocked
                 & ~under_neutral
@@ -357,18 +411,21 @@ def simulate_ensemble(
                 & (pace_delta > 0)
             )
             probability = np.where(attacking, _overtake_probability(pace_delta, params), 0.0)
-            passed = rng.random(n_races) < probability
+            passed = noise[:, position - 1] < probability
 
             resolved = np.where(
                 passed,
                 unimpeded,
                 np.where(blocked, limit + params.failed_attempt_cost_s * attacking, unimpeded),
             )
-            new_cum[rows, car] = resolved
+            resolved_ord[:, position] = resolved
             # The car physically at the back of everything processed so far is
             # whichever of the two is later, which is the passed car after a
             # successful move and the follower otherwise.
             behind_reference = np.maximum(behind_reference, resolved)
+
+        new_cum = np.empty_like(cum_ord)
+        np.put_along_axis(new_cum, order, resolved_ord, axis=1)
 
         # -- 5. bookkeeping and retirements ----------------------------------
         state.cum_time = np.where(alive, new_cum, state.cum_time)

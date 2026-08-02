@@ -37,8 +37,10 @@ class DegradationPosterior:
     tau2: np.ndarray  # (n_samples, n_compounds, 3)
     driver: np.ndarray  # (n_samples, n_drivers, n_compounds)
     phi: np.ndarray  # (n_samples,)
+    theta: np.ndarray  # (n_samples, n_circuits) track evolution, s per race fraction
     sigma: np.ndarray  # (n_samples,)
     active: np.ndarray  # (n_circuits, n_compounds, 3) bool
+    max_age: np.ndarray  # (n_circuits, n_compounds) oldest observed tyre age
     circuits: list[str]
     compounds: list[str]
     drivers: list[str]
@@ -71,8 +73,10 @@ class DegradationPosterior:
             tau2=draws.flat("tau2"),
             driver=draws.flat("driver"),
             phi=draws.flat("phi"),
+            theta=draws.flat("theta"),
             sigma=np.sqrt(draws.flat("sigma2")),
             active=np.asarray(draws.active, dtype=bool),
+            max_age=np.asarray(draws.max_age, dtype=float),
             circuits=list(draws.circuits),
             compounds=list(draws.compounds),
             drivers=list(draws.drivers),
@@ -230,21 +234,48 @@ class DegradationPosterior:
         return pd.DataFrame(rows)
 
     def compound_offsets(self) -> pd.DataFrame:
-        """Fresh-tyre pace of each compound relative to the medium, per circuit."""
+        """Pace of each compound relative to the medium, per circuit.
+
+        Two different numbers, and confusing them is easy. Because tyre age is
+        centred before fitting, the raw coefficient is pace at the *mean* tyre
+        age in the dataset, not on a new tyre. At mean age a hard can genuinely
+        be quicker than a medium, because the medium has worn more by then;
+        that is not a broken fit, it is the whole point of the wear model.
+
+        ``at_mean_age_s`` is the raw coefficient. ``fresh_s`` evaluates the
+        curve at zero age, which is the number people mean by "compound
+        offset", and there the softer tyre should be the quicker one.
+        """
         rows = []
+        fresh_row = self.basis(0.0)
         for ci, circuit in enumerate(self.circuits):
-            for ki, compound in enumerate(self.compounds):
-                if not self.active[ci, ki, 0]:
+            reference = None
+            for ki in range(len(self.compounds)):
+                if not self.active[ci, ki, 1]:
                     continue
-                offsets = self.beta[:, ci, ki, 0]
-                lower, median, upper = np.percentile(offsets, [5, 50, 95])
+                fresh = self.beta[:, ci, ki, :] @ fresh_row
+                if not self.active[ci, ki, 0]:
+                    reference = fresh
+            for ki, compound in enumerate(self.compounds):
+                if not self.active[ci, ki, 1]:
+                    continue
+                fresh = self.beta[:, ci, ki, :] @ fresh_row
+                if reference is not None:
+                    fresh = fresh - reference
+                raw = self.beta[:, ci, ki, 0]
+                lo_r, mid_r, hi_r = np.percentile(raw, [5, 50, 95])
+                lo_f, mid_f, hi_f = np.percentile(fresh, [5, 50, 95])
                 rows.append(
                     {
                         "circuit": circuit,
                         "compound": compound,
-                        "offset_s_median": float(median),
-                        "offset_s_q05": float(lower),
-                        "offset_s_q95": float(upper),
+                        "at_mean_age_s": float(mid_r),
+                        "at_mean_age_q05": float(lo_r),
+                        "at_mean_age_q95": float(hi_r),
+                        "fresh_s": float(mid_f),
+                        "fresh_q05": float(lo_f),
+                        "fresh_q95": float(hi_f),
+                        "max_observed_age": float(self.max_age[ci, ki]),
                     }
                 )
         return pd.DataFrame(rows)
@@ -266,6 +297,26 @@ class DegradationPosterior:
             "s_per_lap_q05": float(lower * burn_per_lap_kg),
             "s_per_lap_q95": float(upper * burn_per_lap_kg),
         }
+
+    def track_evolution(self) -> pd.DataFrame:
+        """Per-circuit lap-time change from the start of the race to the end.
+
+        Negative means the track gets faster as it rubbers in, which is the
+        usual direction. A positive value is a circuit where rising track
+        temperature outweighs the rubber, which does happen at hot venues.
+        """
+        rows = []
+        for ci, circuit in enumerate(self.circuits):
+            lower, median, upper = np.percentile(self.theta[:, ci], [5, 50, 95])
+            rows.append(
+                {
+                    "circuit": circuit,
+                    "evolution_s_median": float(median),
+                    "evolution_s_q05": float(lower),
+                    "evolution_s_q95": float(upper),
+                }
+            )
+        return pd.DataFrame(rows).sort_values("evolution_s_median").reset_index(drop=True)
 
     def driver_ranking(self, compound: str | None = None) -> pd.DataFrame:
         """Driver tyre-management effect, negative meaning kinder on the tyre.
@@ -306,9 +357,11 @@ class DegradationPosterior:
             tau2=self.tau2,
             driver=self.driver,
             phi=self.phi,
+            theta=self.theta,
             sigma=self.sigma,
             circuit_scale=self.circuit_scale,
             active=self.active,
+            max_age=self.max_age,
         )
         meta = {
             "circuits": self.circuits,
@@ -335,8 +388,10 @@ class DegradationPosterior:
             tau2=arrays["tau2"],
             driver=arrays["driver"],
             phi=arrays["phi"],
+            theta=arrays["theta"],
             sigma=arrays["sigma"],
             active=arrays["active"].astype(bool),
+            max_age=arrays["max_age"],
             circuits=list(meta["circuits"]),
             compounds=list(meta["compounds"]),
             drivers=list(meta["drivers"]),

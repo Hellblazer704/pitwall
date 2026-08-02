@@ -3,12 +3,20 @@ search:
   # pit loss is very low, but we let the data say so rather than assuming.
   stop_counts: [1, 2, 3]
 
-  # Candidate pit laps are enumerated on this grid rather than every lap, then
-  # the best few are refined lap by lap. Full enumeration of 2-stop windows on
-  # a 60-lap race is ~1700 candidates before compound sequences.
+  # The search runs in three stages, because the full product of stop count,
+  # pit laps and compound sequence is over forty thousand candidates on a
+  # 57-lap race and cannot be simulated. See optimize/candidates.py.
+  #
+  #   1. rank compound sequences at an even stint split
+  #   2. keep_sequences of them get a full pit-lap search on this grid
+  #   3. refine_top_k of those get a lap-by-lap refinement at full ensemble size
+  keep_sequences: 6
   lap_grid_step: 3
-  refine_top_k: 12
+  refine_top_k: 8
   refine_radius_laps: 3
+  # Hard ceiling on the final pass, which is the expensive one: each candidate
+  # there costs n_races_final simulated races.
+  max_refine_candidates: 60
 
   # Stints shorter than this are not viable outside of an SC reaction.
   min_stint_laps: 6

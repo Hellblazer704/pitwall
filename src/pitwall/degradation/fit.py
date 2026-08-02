@@ -42,6 +42,7 @@ def _priors_from_config(cfg: DictConfig) -> GibbsPriors:
         fuel_sd=float(deg.fuel.prior_sd_s_per_kg),
         mu_mean=float(deg.priors.mu_deg_mean),
         mu_sd=float(deg.priors.mu_deg_sd),
+        theta_sd=float(deg.priors.track_evolution_sd),
         tau_scale=tuple(float(v) for v in deg.priors.tau_deg_scale),  # type: ignore[arg-type]
         driver_sd_scale=float(deg.priors.driver_sd_scale),
         sigma_scale=float(deg.priors.sigma_scale),
@@ -119,6 +120,18 @@ def _model_card(
         collinearity.head(8).to_string(index=False, float_format=lambda v: f"{v:.3f}"),
         "```",
         "",
+        "## Track evolution, seconds across a race distance",
+        "",
+        "Negative means the circuit rubbers in and gets faster. Without this",
+        "term the effect leaks into whichever compound happens to run late,",
+        "which made the hard tyre look faster than the medium.",
+        "",
+        "```",
+        posterior.track_evolution()
+        .head(8)
+        .to_string(index=False, float_format=lambda v: f"{v:.3f}"),
+        "```",
+        "",
         "## Driver tyre management",
         "",
         "Adjustment to the degradation slope, in seconds per "
@@ -172,6 +185,7 @@ def fit_from_config(cfg: DictConfig, seasons: list[int] | None = None) -> Degrad
     result = diagnostics.summarise(
         {
             "phi": draws.phi,
+            "theta": draws.theta,
             "sigma2": draws.sigma2,
             "sigma_u2": draws.sigma_u2,
             "mu": draws.mu,

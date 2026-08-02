@@ -42,8 +42,30 @@ cleaning:
   # Stints shorter than this cannot identify a degradation slope.
   min_stint_laps: 5
 
-  # Races with any rainfall reading are dropped from the dry-tyre fit.
-  drop_wet_races: true
+  # Dirty air costs several tenths a lap, and a car that spends a whole stint
+  # stuck behind another has that loss attributed to its tyres. Laps started
+  # within this gap of the car ahead leave the degradation fit. They are still
+  # used, in the raw tables, to calibrate the simulator's traffic model.
+  min_gap_ahead_s: 1.5
+
+  # Wet handling. Dropping a race on *any* rainfall reading loses a third of
+  # the calendar to brief showers and sensor blips, so instead the race is
+  # dropped only if a real share of it ran in the wet, and individual laps
+  # with a rainfall reading are dropped everywhere.
+  max_rain_lap_share: 0.15
+  drop_rain_laps: true
+
+  # The rainfall sensor is not enough on its own. A race that starts wet and
+  # dries out has a track whose grip improves for two minutes after the rain
+  # stops reading, and the resulting collapse in lap times is not something a
+  # per-race intercept can absorb: it loads straight onto the tyre-age curve
+  # as huge negative wear. Singapore 2022 fitted -0.70 s/lap of "degradation"
+  # before this filter existed.
+  #
+  # Wet-tyre usage is the reliable signal. If the field ran inters or full wets
+  # for more than this share of laps, the dry running in that race was on a
+  # drying or damp track and the whole race leaves the fit.
+  max_wet_tyre_lap_share: 0.05
 
   # Compounds carried into the model. INTERMEDIATE and WET are out of scope.
   compounds: [SOFT, MEDIUM, HARD]

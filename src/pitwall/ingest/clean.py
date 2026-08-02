@@ -147,15 +147,42 @@ def clean_laps(
     laps = tables.laps.copy()
     report.record("raw laps", len(laps), "everything FastF1 returned")
 
+    # Gap to the car ahead has to be computed before anything is filtered out.
+    # It is a difference between adjacent cars on the road, so removing a
+    # driver's lap first would silently make the next car back appear to be
+    # chasing whoever is now adjacent in the sorted order.
+    laps = add_gap_ahead(laps)
+
     # -- Races we cannot model at all -------------------------------------
-    if bool(getattr(cfg, "drop_wet_races", True)):
-        wet_races = tables.race.loc[tables.race["any_rainfall"], ["season", "round"]]
-        if len(wet_races):
-            before = set(map(tuple, wet_races.to_numpy()))
-            mask = ~laps.set_index(["season", "round"]).index.isin(before)
-            laps = laps.loc[mask]
-            report.note(f"dropped {len(wet_races)} race(s) with any rainfall reading")
-        report.record("dry races only", len(laps), "wet running destroys the dry-tyre signal")
+    rain_share = float(getattr(cfg, "max_rain_lap_share", 0.15))
+    wet_share = laps.groupby(["season", "round"])["rainfall"].mean()
+    wet_races = wet_share.loc[wet_share > rain_share].index
+    if len(wet_races):
+        mask = ~laps.set_index(["season", "round"]).index.isin(set(wet_races))
+        laps = laps.loc[mask]
+        report.note(
+            f"dropped {len(wet_races)} race(s) with more than {rain_share:.0%} of laps in the wet"
+        )
+    report.record("mostly-dry races", len(laps), f"race-level rain share above {rain_share:.0%}")
+
+    wet_tyre_share = float(getattr(cfg, "max_wet_tyre_lap_share", 0.05))
+    on_wets = laps["compound"].isin(["INTERMEDIATE", "WET"])
+    wet_tyre_by_race = on_wets.groupby([laps["season"], laps["round"]]).mean()
+    drying = wet_tyre_by_race.loc[wet_tyre_by_race > wet_tyre_share].index
+    if len(drying):
+        mask = ~laps.set_index(["season", "round"]).index.isin(set(drying))
+        laps = laps.loc[mask]
+        report.note(
+            f"dropped {len(drying)} race(s) where wet tyres ran for more than "
+            f"{wet_tyre_share:.0%} of laps (drying track)"
+        )
+    report.record(
+        "no drying tracks", len(laps), f"wet-tyre usage above {wet_tyre_share:.0%} of race laps"
+    )
+
+    if bool(getattr(cfg, "drop_rain_laps", True)):
+        laps = laps.loc[~laps["rainfall"].astype(bool)]
+        report.record("dry laps", len(laps), "individual laps with a rainfall reading")
 
     exclude = list(getattr(cfg, "exclude_events", []) or [])
     if exclude:
@@ -200,7 +227,15 @@ def clean_laps(
         return laps, report
 
     # -- Derived quantities, then the filters that need them ---------------
-    laps = add_gap_ahead(laps)
+    min_gap = float(getattr(cfg, "min_gap_ahead_s", 1.5))
+    if min_gap > 0:
+        laps = laps.loc[laps["gap_ahead_s"] >= min_gap]
+        report.record(
+            "clean air only",
+            len(laps),
+            f"started the lap within {min_gap:.1f}s of the car ahead",
+        )
+
     laps = add_fuel_mass(laps, tables.race, start_mass_kg)
     laps["stint_uid"] = _stint_uid(laps)
     laps["tyre_age"] = laps["tyre_life"].astype(float)

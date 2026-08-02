@@ -16,12 +16,12 @@ fuel:
   prior_mean_s_per_kg: 0.030
   prior_sd_s_per_kg: 0.012
 
-  # If true, a single global fuel coefficient is shared by every circuit and
-  # scaled by that circuit's lap length. This is the identification trick:
-  # pooling the fuel effect across circuits with different stint structures
-  # is what breaks its collinearity with tyre age.
+  # A single global fuel coefficient is shared by every circuit and scaled by
+  # that circuit's median green-flag lap time, which is the observable proxy
+  # for how much time a kilogram costs there. Pooling the effect that is
+  # physically common while leaving degradation free per circuit is what makes
+  # the separation from tyre age stable. See degradation/design.py.
   pool_across_circuits: true
-  reference_lap_km: 5.0
 
 degradation:
   # Curve shape per compound. "linear" is a constant loss per lap of age.
@@ -37,17 +37,25 @@ sampler:
   # Conditionally-conjugate Gibbs sampler, see pitwall/degradation/gibbs.py.
   # Every full conditional is available in closed form, so there is no tuning
   # and no compiler dependency.
+  # Gibbs draws are cheap here (a sweep is a few vectorised passes) but mix
+  # more slowly than HMC would, so the budget is spent on draws rather than on
+  # tuning. These settings clear Rhat < 1.01 and ESS > 400 on the full
+  # four-season fit; a short run will not, and the diagnostics say so.
   chains: 4
-  draws: 2000
-  warmup: 1000
+  draws: 4000
+  warmup: 1500
   thin: 1
 
 priors:
   # Population-level (across-circuit) mean and spread for each compound's
-  # degradation coefficients.
+  # degradation coefficients. Coefficients are on the scaled-age axis, so a
+  # linear coefficient of 1.0 means one second lost over age_scale_laps laps.
   mu_deg_mean: 0.0
-  mu_deg_sd: 0.5
-  tau_deg_scale: 0.25      # half-Cauchy scale on between-circuit sd
+  mu_deg_sd: 2.0
+  # Half-Cauchy scale on the between-circuit sd, per coefficient:
+  # [compound offset, linear wear, quadratic wear]. The quadratic is tight on
+  # purpose; see the note in degradation/gibbs.py.
+  tau_deg_scale: [0.50, 0.50, 0.15]
   driver_sd_scale: 0.40    # half-Cauchy scale on driver random-effect sd
   sigma_scale: 0.50        # half-Cauchy scale on residual lap-time sd
 

@@ -48,6 +48,19 @@ def _parse_race(text: str) -> tuple[int, int]:
     return int(season), int(round_no)
 
 
+def _parse_races(text: str) -> list[tuple[int, int]]:
+    return [_parse_race(part) for part in text.split(",") if part]
+
+
+def _parse_seasons(text: str) -> list[int]:
+    """``"2022,2023"`` -> ``[2022, 2023]``.
+
+    Comma-separated rather than ``nargs="+"`` because the trailing Hydra
+    overrides are positional, and a greedy list argument eats them.
+    """
+    return [int(part) for part in text.split(",") if part]
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     from pitwall.ingest.fetch import fetch_seasons
 
@@ -124,18 +137,18 @@ def build_parser() -> argparse.ArgumentParser:
         )
 
     p_ingest = sub.add_parser("ingest", help="download and flatten race sessions")
-    p_ingest.add_argument("--seasons", type=int, nargs="+")
+    p_ingest.add_argument("--seasons", type=_parse_seasons, metavar="Y1,Y2")
     p_ingest.add_argument("--force", action="store_true", help="refetch races already on disk")
     add_overrides(p_ingest)
     p_ingest.set_defaults(func=cmd_ingest)
 
     p_clean = sub.add_parser("clean", help="build the modelling frame")
-    p_clean.add_argument("--seasons", type=int, nargs="+")
+    p_clean.add_argument("--seasons", type=_parse_seasons, metavar="Y1,Y2")
     add_overrides(p_clean)
     p_clean.set_defaults(func=cmd_clean)
 
     p_fit = sub.add_parser("fit", help="fit the hierarchical degradation model")
-    p_fit.add_argument("--seasons", type=int, nargs="+")
+    p_fit.add_argument("--seasons", type=_parse_seasons, metavar="Y1,Y2")
     add_overrides(p_fit)
     p_fit.set_defaults(func=cmd_fit)
 
@@ -147,13 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_opt.set_defaults(func=cmd_optimize)
 
     p_back = sub.add_parser("backtest", help="validate against a held-out season")
-    p_back.add_argument("--seasons", type=int, nargs="+")
+    p_back.add_argument("--seasons", type=_parse_seasons, metavar="Y1,Y2")
     p_back.add_argument("--limit", type=int, default=None, help="only the first N races")
     add_overrides(p_back)
     p_back.set_defaults(func=cmd_backtest)
 
     p_abl = sub.add_parser("ablate", help="run the realism ablation study")
-    p_abl.add_argument("--race", type=_parse_race, nargs="+", metavar="SEASON:ROUND")
+    p_abl.add_argument("--race", type=_parse_races, metavar="S:R,S:R")
     p_abl.add_argument("--n-races", type=int, default=None)
     add_overrides(p_abl)
     p_abl.set_defaults(func=cmd_ablate)

@@ -33,9 +33,9 @@ season it has never seen:
 
 | | |
 |---|---:|
-| Mean absolute finishing-position error | **2.54** |
-| Spearman rank correlation | **0.788** |
-| Brier score, P(points) | **0.124** |
+| Mean absolute finishing-position error | **2.53** |
+| Spearman rank correlation | **0.790** |
+| Brier score, P(points) | **0.1235** |
 | ...against a climatology baseline of | 0.250 |
 
 And it quantifies what realism is worth: Component 5 strips out safety cars,
@@ -250,12 +250,14 @@ in DESIGN.md.
 
 Kept here rather than buried, and expanded in DESIGN.md:
 
-- **Soft-tyre curves are weak and optimistically biased.** Teams run softs in
-  short stints *because* they degrade, so the observed soft laps come
-  disproportionately from situations where the tyre was working. There is no
-  selection model correcting this, and the optimiser over-favours soft-heavy
-  multi-stop plans at circuits with sparse soft data. Melbourne has five soft
-  laps in three seasons.
+- **The optimiser is wrong at Monza, measurably.** All twenty cars one-stopped
+  there in 2025; the model recommends a two-stop. The cause is soft-tyre
+  selection bias — teams run softs short *because* they degrade, so the observed
+  soft laps are the ones where the tyre was working, and the fitted curve is
+  optimistic. Melbourne has five soft laps in three seasons. Forcing wear to be
+  non-decreasing in tyre age (the raw fit had a soft *gaining* 0.16 s/lap over
+  its first ten laps) cut the two-stop's margin by ~40% but did not flip it.
+  Details and the remaining suspects in DESIGN.md.
 - **Safety cars are exogenous.** They are caused by incidents in reality, and
   incidents correlate with close racing. The simulator cannot represent "a
   deployment is more likely because the field is bunched".

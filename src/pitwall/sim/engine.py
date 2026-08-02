@@ -63,6 +63,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from pitwall.degradation.model import monotone_degradation
 from pitwall.sim.events import GREEN, SAFETY_CAR, VSC, NeutralisationSchedule
 from pitwall.sim.params import SimParams
 
@@ -306,6 +307,7 @@ def simulate_ensemble(
     else:
         max_age_row = np.median(posterior.max_age, axis=0)
     z_cap = (max_age_row - age_center) / age_scale  # (n_compounds,)
+    z_fresh = -age_center / age_scale
 
     burn_per_lap = params.fuel_start_mass_kg / max(race_laps, 1)
     last_lap = race_laps if stop_after_lap is None else min(stop_after_lap, race_laps)
@@ -324,20 +326,13 @@ def simulate_ensemble(
         alive = ~state.retired
 
         # -- 1. free-air lap time -------------------------------------------
-        z_raw = (state.tyre_age - age_center) / age_scale
-        cap = z_cap[state.compound]
-        z = np.minimum(z_raw, cap)
-        overshoot = np.maximum(z_raw - cap, 0.0)
-
-        linear = np.take_along_axis(coef_linear, state.compound, axis=1)
-        quad = np.take_along_axis(coef_quad, state.compound, axis=1)
-        deg = (
-            np.take_along_axis(coef_offset, state.compound, axis=1)
-            + linear * z
-            + quad * z * z
-            # Linear continuation past the observed age range, at the slope the
-            # fitted curve had reached there.
-            + (linear + 2.0 * quad * z) * overshoot
+        deg = monotone_degradation(
+            np.take_along_axis(coef_offset, state.compound, axis=1),
+            np.take_along_axis(coef_linear, state.compound, axis=1),
+            np.take_along_axis(coef_quad, state.compound, axis=1),
+            (state.tyre_age - age_center) / age_scale,
+            z_fresh,
+            z_cap[state.compound],
         )
         fuel = params.fuel_s_per_kg * burn_per_lap * (race_laps - lap)
 

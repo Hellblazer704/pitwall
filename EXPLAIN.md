@@ -241,10 +241,25 @@ observed soft laps come disproportionately from situations where the tyre was
 working well. The fitted soft curve is therefore optimistic, and the optimiser
 believes softs last better than they do.
 
-The hierarchy handles the sparsity honestly — those circuits get wide intervals
-and shrink to the population. It does *not* handle the selection, because
+The sharpest version of this: at Monza 2025 **all twenty cars one-stopped** and
+the model recommends a two-stop. That is not a subtle disagreement.
+
+Digging into it found something worse than wide intervals. The unconstrained fit
+had the Monza soft **0.16s a lap quicker at ten laps old than new** — negative
+wear, which makes short stints look free. Wear is now forced to be
+non-decreasing in tyre age, which is a physical fact the likelihood does not
+know. That cut the two-stop's margin from 0.39 expected points to 0.23 and
+slightly improved held-out accuracy, but did not flip the call.
+
+What is left is honest uncertainty about *which* of two things is still wrong:
+residual soft-tyre optimism, or Monza's overtaking index of 1.20 making it too
+cheap to recover track position after the extra stop. I have not separated them.
+
+The hierarchy handles the sparsity honestly — sparse circuits get wide intervals
+and shrink to the population. It does not handle the selection, because
 correcting that needs a model of the compound choice itself. That is the first
-thing I would fix and it is in DESIGN.md as a known limitation, not a footnote.
+thing I would fix, and it is in DESIGN.md as a measured failure with numbers
+attached rather than a hedge.
 
 ### 5. Why is the simulator vectorised over races rather than over cars?
 

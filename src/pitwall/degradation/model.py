@@ -28,6 +28,61 @@ log = logging.getLogger(__name__)
 __all__ = ["DegradationPosterior"]
 
 
+def monotone_degradation(
+    offset: np.ndarray,
+    linear: np.ndarray,
+    quad: np.ndarray,
+    z: np.ndarray,
+    z_fresh: float,
+    z_cap: np.ndarray | float | None = None,
+) -> np.ndarray:
+    """Lap-time loss from a tyre, constrained to never improve with age.
+
+    An unconstrained quadratic fitted to real stint data can and does come out
+    *decreasing* over part of its range. At Monza the fitted soft curve had a
+    tyre 0.16s a lap quicker at ten laps old than when new, which is not a
+    thing that happens: it is the fit reading a selection effect (teams run
+    softs in short stints, and disproportionately when the tyre is behaving)
+    as if it were tyre physics.
+
+    Left alone it is not a cosmetic problem. Negative early wear makes short
+    stints look free, and the optimiser responded by recommending soft-heavy
+    multi-stop strategies at a circuit where all twenty cars one-stopped.
+
+    So the curve is replaced by its monotone envelope, the running maximum of
+    wear over tyre age. Two cases:
+
+    - convex (positive curvature): the parabola's minimum is interior, so the
+      envelope is simply the wear clipped at zero
+    - concave (negative curvature): wear peaks at the vertex and then falls, so
+      the evaluation point is clamped there and it holds its peak
+
+    This is a shape constraint applied at prediction rather than in the
+    sampler. The honest description is that it encodes a physical fact the
+    likelihood does not know, and it only ever binds where the fit was making a
+    claim the data cannot support.
+    """
+    # Wear is measured relative to a brand new tyre, so the compound's level
+    # separates cleanly from how the tyre decays.
+    fresh_level = offset + linear * z_fresh + quad * z_fresh * z_fresh
+
+    if z_cap is not None:
+        z_capped = np.minimum(z, z_cap)
+        overshoot = np.maximum(z - z_cap, 0.0)
+    else:
+        z_capped, overshoot = z, np.zeros_like(z)
+
+    # Concave curves are clamped at their vertex so they stop improving.
+    safe_quad = np.where(np.abs(quad) < 1e-9, -1e-9, quad)
+    vertex = -linear / (2.0 * safe_quad)
+    z_eval = np.where(quad < 0.0, np.minimum(z_capped, np.maximum(vertex, z_fresh)), z_capped)
+
+    wear = linear * (z_eval - z_fresh) + quad * (z_eval * z_eval - z_fresh * z_fresh)
+    # Linear continuation past the observed age range, never downwards.
+    wear = wear + np.maximum(linear + 2.0 * quad * z_eval, 0.0) * overshoot
+    return fresh_level + np.maximum(wear, 0.0)
+
+
 @dataclass(frozen=True)
 class DegradationPosterior:
     """Posterior draws, indexed for fast lookup during simulation."""
@@ -165,16 +220,19 @@ class DegradationPosterior:
     ) -> np.ndarray:
         """Lap-time loss in seconds for a tyre of ``age_laps``.
 
-        Measured relative to the reference compound at the mean tyre age, so
-        the return value bundles the compound offset with the wear. Positive
-        means slower. Only differences between two calls are meaningful in
-        absolute terms; the simulator uses it that way.
+        Constrained to be non-decreasing in tyre age — see
+        :func:`monotone_degradation`. Positive means slower; only differences
+        between two calls are meaningful in absolute terms, which is how the
+        simulator uses it.
         """
-        row = self.basis(age_laps)
         coefs = np.asarray(coefficients)
         selected = coefs[..., compound_idx, :]
-        base = np.einsum("...j,...j->...", selected, row)
-        return base + np.asarray(driver_slope) * row[..., 1]
+        z = (np.asarray(age_laps, dtype=float) - self.age_center_laps) / self.age_scale_laps
+        z_fresh = -self.age_center_laps / self.age_scale_laps
+        quad = selected[..., 2] if self.quadratic else np.zeros_like(selected[..., 1])
+
+        value = monotone_degradation(selected[..., 0], selected[..., 1], quad, z, z_fresh)
+        return value + np.asarray(driver_slope) * (z - z_fresh)
 
     def driver_slope(
         self, sample: int | slice | np.ndarray, driver: str | None, compound_idx: int
@@ -211,15 +269,25 @@ class DegradationPosterior:
         comparable across compounds and across circuits.
         """
         rows = []
-        fresh = self.basis(0.0)
+        z_fresh = -self.age_center_laps / self.age_scale_laps
         for ci, circuit in enumerate(self.circuits):
             for ki, compound in enumerate(self.compounds):
                 if not self.active[ci, ki, 1]:
                     continue
                 coefs = self.beta[:, ci, ki, :]
+                # Reported through the same monotone envelope the simulator
+                # uses, so the model card cannot show a curve the engine would
+                # never produce. Differenced against a brand new tyre, which is
+                # what makes it wear rather than absolute pace.
+                fresh = monotone_degradation(
+                    coefs[:, 0], coefs[:, 1], coefs[:, 2], np.full(coefs.shape[0], z_fresh), z_fresh
+                )
                 for age in ages:
-                    delta = self.basis(float(age)) - fresh
-                    loss = coefs @ delta
+                    z = np.full(coefs.shape[0], (age - self.age_center_laps) / self.age_scale_laps)
+                    loss = (
+                        monotone_degradation(coefs[:, 0], coefs[:, 1], coefs[:, 2], z, z_fresh)
+                        - fresh
+                    )
                     lower, median, upper = np.percentile(loss, [5, 50, 95])
                     rows.append(
                         {

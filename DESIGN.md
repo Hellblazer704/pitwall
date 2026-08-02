@@ -99,6 +99,29 @@ Beyond the oldest tyre age actually observed for a circuit and compound, the
 curve is continued **linearly** at the slope it had reached. A quadratic fitted
 to stints that never passed 12 laps says nothing usable about lap 35.
 
+### Monotonicity constraint
+
+**Structural, applied at prediction.** Wear is forced to be non-decreasing in
+tyre age.
+
+The unconstrained fit violates this. At Monza the soft came out **0.16s a lap
+quicker at ten laps old than new**. That is not tyre physics, it is the
+likelihood reading a selection effect as if it were: teams run softs in short
+stints and disproportionately when the tyre is behaving, so the observed soft
+laps are the good ones.
+
+Left in, it is not cosmetic — negative early wear makes short stints look free,
+and the optimiser responded by recommending soft-heavy multi-stop strategies.
+The curve is replaced by its monotone envelope: wear clipped at zero for convex
+curves, and clamped at the vertex for concave ones so they hold their peak
+rather than falling away.
+
+This encodes a physical fact the likelihood does not know, and it only binds
+where the fit was making a claim the data cannot support. It also *improves*
+held-out accuracy slightly (MAE 2.54 → 2.53, Brier 0.1240 → 0.1235), which is
+the reassuring direction for a constraint like this — it is not being paid for
+with fit.
+
 ### Compound offsets
 
 **Estimated**, with the medium pinned as reference. Without a reference the
@@ -131,8 +154,27 @@ Two consequences, both real:
   soft curve is therefore optimistic, and the optimiser over-favours soft-heavy
   multi-stop strategies at circuits with sparse soft data.
 
-Correcting this needs a selection model on the compound choice itself, which is
-out of scope here. It is the first thing I would fix.
+**Measured consequence, and an open failure.** At Monza 2025 **all twenty cars
+one-stopped**. The optimiser recommends a two-stop, and before the monotonicity
+constraint its refined candidate set contained no one-stop at all. Scored under
+the model for Norris from P2:
+
+| strategy | expected points (before) | (after constraint) |
+|---|---:|---:|
+| 2-stop S-S-M @22,43 | 19.74 | 18.83 |
+| best 1-stop (S-M @20) | 19.35 | 18.60 |
+| what he actually ran (M-S @46) | 16.59 | 16.53 |
+
+The constraint cut the two-stop's margin by roughly 40%, from 0.39 points to
+0.23, but did not flip the call. Two suspects remain and I have not separated
+them: residual soft-tyre optimism, and Monza's overtaking index of 1.20, which
+may overstate how cheaply a car recovers track position after an extra stop —
+a two-stop is only attractive if you can pass on the way back.
+
+Correcting the first needs a selection model on the compound choice itself,
+which is out of scope here. This is the clearest open failure in the project and
+it is measurable rather than hypothetical, which is at least the right kind of
+problem to be left with.
 
 ---
 
@@ -338,11 +380,11 @@ ran isolates the race model, because the strategy input is the truth.
 
 | metric | value | note |
 |---|---:|---|
-| Mean absolute position error | 2.54 | over 479 car-races |
-| Median absolute error | 1.92 | |
-| Spearman rank correlation | 0.788 | mean over 24 races |
-| Within one place | 49.9% | |
-| Brier score, P(points) | 0.124 | |
+| Mean absolute position error | 2.53 | over 479 car-races |
+| Median absolute error | 1.90 | |
+| Spearman rank correlation | 0.790 | mean over 24 races |
+| Within one place | 51.6% | |
+| Brier score, P(points) | 0.1235 | |
 | Brier baseline (climatology) | 0.250 | |
 
 Calibration is good: predicted-versus-observed gaps stay under 8 points across

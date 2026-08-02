@@ -16,7 +16,7 @@ import pytest
 from pitwall.degradation.design import build_design, collinearity_diagnostic
 from pitwall.degradation.diagnostics import ess_bulk, split_rhat, summarise
 from pitwall.degradation.gibbs import GibbsPriors, sample
-from pitwall.degradation.model import DegradationPosterior
+from pitwall.degradation.model import DegradationPosterior, monotone_degradation
 
 TRUE_PHI = 0.030
 AGE_SCALE = 20.0
@@ -308,3 +308,52 @@ def test_summarise_marks_a_bad_fit_as_failed() -> None:
     result = summarise({"x": chains}, max_rhat=1.01, min_ess=400)
     assert not result.passed
     assert "FAIL" in result.render()
+
+
+# -- monotonicity constraint ---------------------------------------------
+
+
+def test_wear_never_decreases_with_tyre_age() -> None:
+    """Tyres do not get faster as they age.
+
+    An unconstrained quadratic fitted to real stints does produce decreasing
+    wear over part of its range -- at Monza the soft came out 0.16s a lap
+    quicker at ten laps old than new -- because teams run softs in short
+    stints and disproportionately when the tyre is behaving. Left in, negative
+    early wear makes short stints look free.
+    """
+    ages = np.linspace(0.0, 45.0, 60)
+    z_fresh = -15.0 / 20.0
+    z = (ages - 15.0) / 20.0
+
+    # A curve that genuinely dips: small negative slope, positive curvature.
+    for linear, quad in ((-0.4, 0.5), (0.8, -0.6), (1.2, 0.2), (-0.2, -0.1)):
+        values = monotone_degradation(
+            np.zeros_like(z), np.full_like(z, linear), np.full_like(z, quad), z, z_fresh
+        )
+        wear = values - values[0]
+        assert np.all(np.diff(wear) >= -1e-9), f"wear decreased for linear={linear} quad={quad}"
+        assert np.all(wear >= -1e-9)
+
+
+def test_monotone_constraint_only_binds_where_the_fit_misbehaves() -> None:
+    """A well-behaved increasing curve must pass through untouched."""
+    ages = np.linspace(0.0, 40.0, 40)
+    z_fresh = -15.0 / 20.0
+    z = (ages - 15.0) / 20.0
+    linear, quad = 1.2, 0.15
+
+    constrained = monotone_degradation(
+        np.zeros_like(z), np.full_like(z, linear), np.full_like(z, quad), z, z_fresh
+    )
+    raw = linear * (z - z_fresh) + quad * (z * z - z_fresh * z_fresh)
+    assert np.allclose(constrained - constrained[0], raw, atol=1e-9)
+
+
+def test_fitted_curves_are_physical(recovered) -> None:
+    posterior, _ = recovered
+    summary = posterior.summary(ages=(5, 10, 20, 30))
+    for (circuit, compound), group in summary.groupby(["circuit", "compound"]):
+        ordered = group.sort_values("age_laps")["loss_s_median"].to_numpy()
+        assert np.all(ordered >= -1e-9), f"{circuit}/{compound} has negative wear"
+        assert np.all(np.diff(ordered) >= -1e-9), f"{circuit}/{compound} wear decreases with age"

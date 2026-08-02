@@ -224,7 +224,7 @@ def estimate_overtaking(laps: pd.DataFrame) -> pd.DataFrame:
     # Only consecutive laps: a gap means a pit lap or a neutralisation in
     # between, and any position change across it is not an overtake.
     consecutive = frame["lap_number"] - frame["prev_lap"] == 1
-    frame = frame.loc[consecutive & frame["prev_position"].notna()]
+    frame = frame.loc[consecutive & frame["prev_position"].notna()].copy()
     frame["gained"] = (frame["prev_position"] - frame["position"]).clip(lower=0)
 
     per_race = frame.groupby(["season", "round", "circuit"], as_index=False).agg(

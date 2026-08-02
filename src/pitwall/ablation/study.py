@@ -6,23 +6,32 @@ assumes pit stops take exactly the same time every race does not merely
 produce noisier answers. It produces *systematically different and worse
 recommendations*, and it is confident about them.
 
-The mechanism in each case is the same: the missing feature is a source of
-downside that falls disproportionately on aggressive strategies. Remove it and
-aggression looks free.
+Each removed feature is a source of downside, and each one falls on a different
+kind of strategy:
 
-- **No safety car.** This one cuts both ways and is the most interesting. A
-  neutralisation is a cheap pit stop, which rewards having a stop still in
-  hand, and it bunches the field, which destroys a lead built by track
-  position. A simulator without it misprices both.
-- **Deterministic degradation.** Using the posterior mean throws away the
-  spread of tyre behaviour. A long stint's value depends on the tyre lasting;
-  with the uncertainty removed, the tail where it does not simply disappears.
-- **No traffic.** Without dirty air and without the constraint that a car
-  cannot drive through the one in front, emerging from a pit stop into a pack
-  costs nothing, so any strategy that gives up track position looks free.
-- **No pit-loss variance.** Every stop becomes exactly average: no slow wheel
-  gun, no bad release. Each extra stop is a fixed cost with no tail, so
-  multi-stop strategies stop carrying execution risk.
+- **No safety car.** A neutralisation is a cheap pit stop, which gives real
+  option value to still having a stop in hand, and it bunches the field, which
+  destroys a lead built on track position. A simulator without it misprices
+  both.
+- **Deterministic degradation.** Using the posterior mean throws away the spread
+  of tyre behaviour. A long stint's value depends on the tyre lasting, and with
+  the uncertainty gone the tail where it does not simply disappears.
+- **No traffic.** Without dirty air, and without the constraint that a car
+  cannot drive through the one in front, rejoining into a pack costs nothing, so
+  any strategy that gives up track position looks free.
+- **No pit-loss variance.** Every stop becomes exactly average. Each extra stop
+  is a fixed cost with no tail, so multi-stop plans stop carrying execution
+  risk.
+
+A note on what the results actually showed, since it is not what I expected.
+The common framing is that a naive simulator overrates *aggressive* strategies.
+Only the traffic ablation behaves that way here. The two features that matter
+most -- safety cars and degradation uncertainty -- are both risk channels that
+create option value for keeping a stop in hand, so removing them pushes the
+recommendation towards *fewer* stops, not more. Stripping everything at once
+moves the mean recommended stop count from 1.67 to 1.33. The claim that
+survives is the weaker and more defensible one: naive recommendations are
+materially different and worse, and confidently so.
 
 Two numbers are reported per ablation. **Strategy divergence** is whether the
 degraded simulator recommends something different at all. **Regret** is the

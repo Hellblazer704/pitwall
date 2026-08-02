@@ -412,6 +412,19 @@ claim about internal consistency: *given* that safety cars happen at the observe
 rate and traffic costs what the data says, here is what ignoring them costs. The
 external check is the backtest, and the two answer different questions.
 
+The result also went against what I expected, which is some evidence it is not
+rigged. The standard story is that naive simulators overrate *aggressive*
+strategies. Only the traffic ablation did that. Safety cars and degradation
+uncertainty are both risk channels that give real option value to holding a stop
+in hand, so removing them made the conservative one-stopper look safe — mean
+recommended stops fell from 1.67 to 1.33. If I had been fitting the experiment to
+a conclusion, that is not the conclusion I would have fitted it to.
+
+What does survive cleanly is the sharper claim: the naive model recommends a
+different strategy 89% of the time, and rates its own pick at 12.56 points when
+it is worth 10.38. Being wrong is survivable; being wrong while reporting two
+points of value that are not there is what actually costs you a race.
+
 ### 15. If you had another week, what would you do?
 
 Four things, in order.

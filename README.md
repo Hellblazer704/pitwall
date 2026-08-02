@@ -216,7 +216,24 @@ calibrated model would have chosen. A naive model always rates its own choice
 highly, so self-reported value is not the question — the question is what that
 choice is actually worth.
 
-See `artifacts/ablation/report.txt` after running it.
+| ablation | regret (pts) | overconfidence | strategy differs |
+|---|---:|---:|---:|
+| everything removed | **0.366** | **+2.19** | 89% |
+| deterministic degradation | 0.194 | +0.54 | 89% |
+| no safety car | 0.095 | −0.02 | 67% |
+| no traffic | 0.086 | +0.18 | 56% |
+
+The naive simulator rates its own pick at 12.56 expected points when it is
+actually worth 10.38. It is not just wrong, it is **overconfident by more than
+two points** — larger than the gap between most candidate strategies.
+
+One finding went against expectation and is reported as such: the common claim
+is that naive simulators overrate *aggressive* strategies, and that is not what
+happened. Only the traffic ablation pushes that way. Safety cars and degradation
+uncertainty are both risk channels that create option value in keeping a stop in
+hand, so removing them makes the *conservative* one-stopper look safe — mean
+recommended stops fall from 1.67 to 1.33. Full table and the sample-size caveat
+in DESIGN.md.
 
 ---
 

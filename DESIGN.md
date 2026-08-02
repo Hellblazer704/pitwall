@@ -356,6 +356,52 @@ where the model's stated assumptions break, which is the reassuring failure mode
 
 ---
 
+---
+
+## 5. Ablation results
+
+Three held-out races (Zandvoort, Monza, Las Vegas), three cars each by finishing
+order (P3, P8, P13), 900 simulated races per candidate. Each arm searches with
+its own degraded simulator; the strategy it picks is then scored under the
+calibrated one.
+
+| ablation | regret (pts) | ± se | self-rated | optimism | strategy differs | mean stops |
+|---|---:|---:|---:|---:|---:|---:|
+| naive_all | **0.366** | 0.163 | 12.56 | **+2.19** | 89% | 1.33 |
+| deterministic_degradation | **0.194** | 0.057 | 11.09 | +0.54 | 89% | 1.78 |
+| no_safety_car | 0.095 | 0.054 | 10.63 | −0.02 | 67% | 1.56 |
+| no_traffic | 0.086 | 0.049 | 10.84 | +0.18 | 56% | 1.67 |
+| no_reliability | 0.022 | 0.019 | 11.15 | +0.43 | 56% | 1.78 |
+| no_pit_variance | 0.014 | 0.013 | 10.74 | +0.01 | 22% | 1.67 |
+| calibrated | 0.000 | — | 10.74 | 0.00 | — | 1.67 |
+
+**What holds.** Stripping every realism feature changes the recommended strategy
+in 89% of cases and the stop count in 33%. The naive model rates its own choice
+at 12.56 expected points when that choice is actually worth 10.38 — it is not
+merely wrong, it is **overconfident by 2.19 points**, which is larger than the
+gap between most candidate strategies. Degradation uncertainty is the single
+most costly thing to drop (t = 3.4).
+
+**What does not hold, and I am reporting it rather than burying it.** The usual
+framing is that a naive simulator overrates *aggressive* strategies. That is not
+what happened. Only the traffic ablation pushes toward more stops, which is the
+expected direction — remove the cost of rejoining into a pack and pitting looks
+free. But the two features that matter most are both *risk* channels: safety cars
+and degradation uncertainty create option value for keeping a stop in hand, so
+removing them makes the low-stop, track-position strategy look safe. Stripping
+everything moves the mean recommended stop count from 1.67 down to 1.33, and the
+naive model recommends a one-stopper in 6 of 9 cases against 4 of 9 for the
+calibrated one.
+
+**Sample caveat.** n = 9 car-races per arm. Only `naive_all` (t = 2.3) and
+`deterministic_degradation` (t = 3.4) are clearly separated from Monte Carlo
+noise; `no_reliability` and `no_pit_variance` are not distinguishable from zero
+at this sample size and should not be read as "these features do not matter",
+only as "this experiment did not resolve them". A conclusive version needs the
+full held-out season rather than three races.
+
+---
+
 ## Sensitivity ranking
 
 Roughly, most to least consequential if wrong:

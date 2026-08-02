@@ -73,6 +73,11 @@ class BacktestResult:
             f"  exact position hit rate      : {self.summary.get('exact_rate', float('nan')):.3f}",
             f"  within one place             : {self.summary.get('within_one', float('nan')):.3f}",
             "",
+            f"Dry races only ({int(self.summary.get('n_dry_races', 0))} of "
+            f"{int(self.summary.get('n_races', 0))}):",
+            f"  mean absolute position error : {self.summary.get('mae_dry_only', np.nan):.2f}",
+            f"  Spearman rank correlation    : {self.summary.get('spearman_dry_only', np.nan):.3f}",
+            "",
             "Probability calibration:",
             f"  Brier score, P(points)  : {self.summary.get('brier_points', float('nan')):.4f}",
             f"  Brier score, P(podium)  : {self.summary.get('brier_podium', float('nan')):.4f}",
@@ -185,6 +190,7 @@ def replay_race(
     )
 
     stats = {
+        "wet_lap_share": float(field_data.wet_lap_share),
         "mae_position": float(np.nanmean(frame["abs_error"])),
         "spearman": _spearman(predicted_mean[valid], actual[valid]),
         "n_valid": int(valid.sum()),
@@ -268,8 +274,17 @@ def run_backtest(
     calibration = _reliability(p_points, points_outcome)
     calibration.insert(0, "event", "P(points)")
 
+    # Wet races are reported both ways. A dry-tyre model has nothing to say
+    # about them, so burying them in one average hides both how good the model
+    # is on the races it claims to cover and how badly it fails outside them.
+    dry_races = per_race.loc[per_race["wet_lap_share"] <= 0.05]
     summary = {
         "n_races": float(len(per_race)),
+        "n_dry_races": float(len(dry_races)),
+        "mae_dry_only": float(dry_races["mae_position"].mean()) if len(dry_races) else float("nan"),
+        "spearman_dry_only": float(dry_races["spearman"].mean())
+        if len(dry_races)
+        else float("nan"),
         "n_cars": float(len(scored)),
         "mae_position": float(errors.mean()),
         "medae_position": float(np.median(errors)),

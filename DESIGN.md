@@ -380,19 +380,24 @@ ran isolates the race model, because the strategy input is the truth.
 
 | metric | value | note |
 |---|---:|---|
-| Mean absolute position error | 2.53 | over 479 car-races |
-| Median absolute error | 1.90 | |
-| Spearman rank correlation | 0.790 | mean over 24 races |
+| Mean absolute position error | 2.45 | over 479 car-races; 2.41 on the 21 dry races |
+| Median absolute error | 1.85 | |
+| Spearman rank correlation | 0.806 | mean over 24 races; 0.808 dry only |
 | Within one place | 51.6% | |
-| Brier score, P(points) | 0.1235 | |
+| Brier score, P(points) | 0.1179 | |
 | Brier baseline (climatology) | 0.250 | |
 
 Calibration is good: predicted-versus-observed gaps stay under 8 points across
 all five probability bins, and the model beats climatology by half.
 
-**Where it is worst, and why:** Zandvoort (MAE 5.12) and Melbourne (4.29). Both
-2025 races were heavily disrupted — Melbourne was wet, which the dry-tyre model
-cannot represent at all. Las Vegas (4.35) is a first- and second-year circuit
+Wet races are reported separately rather than averaged in. A dry-tyre model has
+nothing to say about a race run 81% on intermediates, and burying those three
+races in one number hides both how good the model is on what it claims to cover
+and how badly it fails outside it.
+
+**Where it is worst, and why:** Zandvoort and Melbourne. Both 2025 races were
+heavily disrupted — Melbourne was wet, which the dry-tyre model cannot represent
+at all. Las Vegas (4.35) is a first- and second-year circuit
 with correspondingly thin per-circuit estimates. The errors concentrate exactly
 where the model's stated assumptions break, which is the reassuring failure mode.
 

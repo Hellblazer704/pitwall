@@ -41,6 +41,10 @@ class RaceField:
     strategies: list[Strategy]
     actual_finish: np.ndarray  # (n_cars,) classified position, NaN if unclassified
     finished: np.ndarray  # (n_cars,) bool
+    # Share of laps run on inters or full wets. A dry-tyre model cannot
+    # represent these races at all, so the backtest reports them separately
+    # rather than letting them sink into an average.
+    wet_lap_share: float = 0.0
 
     @property
     def n_cars(self) -> int:
@@ -87,19 +91,37 @@ def actual_strategies(tables: RaceTables, drivers: list[str], race_laps: int) ->
             .sort_index()
             .reset_index()
         )
-        # Wet compounds cannot be represented in a dry-tyre strategy; map them
-        # to the hard so the plan stays well formed. Races where this matters
-        # are excluded from the fit and flagged in the backtest.
-        compounds = [
+        # Wet compounds have no dry-tyre equivalent, so they are mapped to the
+        # hard to keep the plan well formed.
+        #
+        # That mapping alone produces nonsense on a wet race. Australia 2025
+        # came out as "5stop H-H-H-H-H-H @2,3,4,34,44": the inter/wet/inter
+        # shuffle in the opening laps all became HARD, so consecutive stints on
+        # the *same* mapped compound were read as pit stops between them, and
+        # one-lap stints appeared that no team ever ran.
+        #
+        # Collapsing runs of the same compound fixes it and is correct
+        # regardless of weather -- a car that changes to the same compound has
+        # taken a stop, but for strategy purposes the stint structure is what
+        # matters and the simulator charges the pit loss from the plan.
+        raw = [
             c if c in ("SOFT", "MEDIUM", "HARD") else "HARD" for c in stints["compound"].tolist()
         ]
-        stops = [int(v) for v in stints["last_lap"].tolist()[:-1]]
-        stops = [s for s in stops if 0 < s < race_laps]
+        raw_ends = [int(v) for v in stints["last_lap"].tolist()]
 
-        if len(compounds) != len(stops) + 1:
-            compounds = compounds[: len(stops) + 1]
-            while len(compounds) < len(stops) + 1:
-                compounds.append("HARD")
+        compounds: list[str] = []
+        ends: list[int] = []
+        for compound, end in zip(raw, raw_ends, strict=True):
+            if compounds and compounds[-1] == compound:
+                ends[-1] = end
+                continue
+            compounds.append(compound)
+            ends.append(end)
+
+        stops = [s for s in ends[:-1] if 0 < s < race_laps]
+        compounds = compounds[: len(stops) + 1]
+        while len(compounds) < len(stops) + 1:
+            compounds.append("HARD")
         plans.append(Strategy(compounds=tuple(compounds), stops=tuple(stops)))
 
     return plans
@@ -186,6 +208,7 @@ def build_field(
 
     pace = estimate_pace(tables, drivers, posterior, circuit)
     plans = actual_strategies(tables, drivers, race_laps)
+    wet_share = float(tables.laps["compound"].isin(["INTERMEDIATE", "WET"]).mean())
 
     return RaceField(
         season=season,
@@ -200,6 +223,7 @@ def build_field(
         strategies=plans,
         actual_finish=results["finish_position"].to_numpy(dtype=float),
         finished=results["finished"].to_numpy(dtype=bool),
+        wet_lap_share=wet_share,
     )
 
 

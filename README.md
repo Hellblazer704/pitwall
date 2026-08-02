@@ -33,9 +33,9 @@ season it has never seen:
 
 | | |
 |---|---:|
-| Mean absolute finishing-position error | **2.53** |
-| Spearman rank correlation | **0.790** |
-| Brier score, P(points) | **0.1235** |
+| Mean absolute finishing-position error | **2.45** |
+| Spearman rank correlation | **0.806** |
+| Brier score, P(points) | **0.1179** |
 | ...against a climatology baseline of | 0.250 |
 
 And it quantifies what realism is worth: Component 5 strips out safety cars,

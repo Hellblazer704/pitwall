@@ -108,7 +108,7 @@ class DegradationPosterior:
     # ----------------------------------------------------------- prediction
 
     def coefficients(
-        self, circuit: str, sample: int | np.ndarray, rng: np.random.Generator | None = None
+        self, circuit: str, sample: int | slice | np.ndarray, rng: np.random.Generator | None = None
     ) -> np.ndarray:
         """Degradation coefficients ``(..., n_compounds, 3)`` at ``circuit``.
 
@@ -148,7 +148,9 @@ class DegradationPosterior:
         log.info("circuit %r unseen in training; drawing coefficients from the population", circuit)
         return self._population_draw(sample, rng)
 
-    def _population_draw(self, sample: int | np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    def _population_draw(
+        self, sample: int | slice | np.ndarray, rng: np.random.Generator
+    ) -> np.ndarray:
         """Draw coefficients from ``N(mu, tau^2)`` for the given posterior sample."""
         mu = self.mu[sample]
         tau = np.sqrt(self.tau2[sample])
@@ -175,7 +177,7 @@ class DegradationPosterior:
         return base + np.asarray(driver_slope) * row[..., 1]
 
     def driver_slope(
-        self, sample: int | np.ndarray, driver: str | None, compound_idx: int
+        self, sample: int | slice | np.ndarray, driver: str | None, compound_idx: int
     ) -> float:
         index = self.driver_index(driver)
         if index is None:

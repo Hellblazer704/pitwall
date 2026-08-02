@@ -110,5 +110,6 @@ def coerce(frame: pd.DataFrame, contract: dict[str, str]) -> pd.DataFrame:
     """Project onto the contract's columns and cast to its dtypes."""
     out = frame.loc[:, list(contract)].copy()
     for column, dtype in contract.items():
-        out[column] = out[column].astype(dtype)
+        # pandas-stubs only accepts dtype literals here, not a str variable.
+        out[column] = out[column].astype(dtype)  # type: ignore[call-overload]
     return out

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 __all__ = ["Paths", "default_paths", "repo_root"]
 
@@ -39,8 +40,12 @@ class Paths:
         return self.raw / f"{season}" / f"round_{round_no:02d}"
 
     @classmethod
-    def from_config(cls, cfg: object) -> Paths:
-        """Build from the ``paths`` node of a Hydra config."""
+    def from_config(cls, cfg: Any) -> Paths:
+        """Build from the ``paths`` node of a Hydra config.
+
+        Takes ``Any`` rather than ``DictConfig`` so tests can pass a plain
+        object with the same attributes.
+        """
         node = getattr(cfg, "paths", cfg)
         return cls(
             root=Path(str(node.root)),

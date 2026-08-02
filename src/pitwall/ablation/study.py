@@ -141,7 +141,7 @@ def _search(
     search = cfg.optimizer.search
     posterior = params.posterior
     index = {c: posterior.compound_index(c) for c in posterior.compounds}
-    fd = field_data  # type: ignore[assignment]
+    fd = field_data
 
     shortlist = compound_shortlist(
         race_laps=params.race_laps,

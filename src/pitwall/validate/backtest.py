@@ -131,7 +131,7 @@ def replay_race(
     params = load_sim_params(
         cfg,
         paths,
-        posterior,  # type: ignore[arg-type]
+        posterior,
         circuit=field_data.circuit,
         race_laps=field_data.race_laps,
         profiles=profiles,

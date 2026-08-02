@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -124,7 +125,9 @@ class PosteriorDraws:
         return values.reshape((-1, *values.shape[2:]))
 
 
-def _inv_gamma(rng: np.random.Generator, shape: float, scale: float | np.ndarray) -> np.ndarray:
+def _inv_gamma(
+    rng: np.random.Generator, shape: float | np.ndarray, scale: float | np.ndarray
+) -> np.ndarray:
     """Draw from InvGamma(shape, scale), i.e. 1 / Gamma(shape, rate=scale)."""
     scale_arr = np.asarray(scale, dtype=np.float64)
     gamma = rng.gamma(shape, 1.0 / np.maximum(scale_arr, 1e-300))
@@ -136,7 +139,7 @@ def _half_cauchy_variance(
     sum_squares: np.ndarray | float,
     n: np.ndarray | float,
     aux: np.ndarray | float,
-    scale: float | np.ndarray,
+    scale: float | Sequence[float] | np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """One update of a variance with a half-Cauchy prior on its sd.
 

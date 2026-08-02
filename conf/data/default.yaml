@@ -1,0 +1,49 @@
+# Seasons used to fit every model. 2022 is the first year of the ground-effect
+# regulations, so anything earlier is a different car and a different tyre
+# working range. 2026 is excluded for the same reason in the other direction:
+# new power unit and active aero, so degradation there is not comparable.
+train_seasons: [2022, 2023, 2024]
+
+# Held out entirely until Component 4. Nothing fitted has ever seen it.
+holdout_seasons: [2025]
+
+session: R
+
+# Circuits that behave differently enough to be worth excluding from the
+# pooled fit unless explicitly requested. Wet races destroy the dry-tyre
+# degradation signal, and we drop them per-race at clean time, not here.
+exclude_events: []
+
+cleaning:
+  # An out-lap carries the pit-exit deficit and an in-lap carries the pit-entry
+  # deficit. Neither reflects tyre pace, so both leave the degradation fit.
+  drop_out_laps: true
+  drop_in_laps: true
+
+  # Lap 1 contains the standing start and first-lap traffic.
+  drop_lap_one: true
+
+  # FastF1 marks a lap inaccurate when timing is incomplete or the lap spans a
+  # pit event it could not resolve.
+  require_is_accurate: true
+
+  # Deleted laps (track limits) are still physically driven, but the stewards'
+  # deletion usually flags an off-track excursion that cost or gained time.
+  drop_deleted: true
+
+  # Any lap whose TrackStatus is not pure green. Codes: 1 green, 2 yellow,
+  # 4 safety car, 5 red flag, 6 VSC deployed, 7 VSC ending.
+  green_flag_only: true
+
+  # A lap slower than this multiple of the driver's stint median is treated as
+  # traffic-affected, a mistake, or an unflagged incident.
+  max_lap_ratio_to_stint_median: 1.07
+
+  # Stints shorter than this cannot identify a degradation slope.
+  min_stint_laps: 5
+
+  # Races with any rainfall reading are dropped from the dry-tyre fit.
+  drop_wet_races: true
+
+  # Compounds carried into the model. INTERMEDIATE and WET are out of scope.
+  compounds: [SOFT, MEDIUM, HARD]

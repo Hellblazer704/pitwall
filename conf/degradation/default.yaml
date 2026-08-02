@@ -1,0 +1,57 @@
+# Hierarchical Bayesian degradation model.
+#
+# Lap time is decomposed as
+#   t = circuit_base + driver_offset + fuel(lap) + deg(compound, circuit, age)
+# where the fuel term is the part that is confounded with tyre age. See
+# DESIGN.md "Fuel-burn identification" for why this is the hard bit.
+
+fuel:
+  # Fuel effect is modelled as linear in mass burned, which is linear in laps
+  # completed. We do not fix the coefficient a priori; it is estimated, but
+  # this prior keeps it in the physically sensible range.
+  #
+  # Regulation start mass is 110 kg. Published sensitivity is roughly
+  # 0.03 s/lap/kg of lap-time per kg, i.e. ~0.10 s/lap at a typical circuit.
+  start_mass_kg: 110.0
+  prior_mean_s_per_kg: 0.030
+  prior_sd_s_per_kg: 0.012
+
+  # If true, a single global fuel coefficient is shared by every circuit and
+  # scaled by that circuit's lap length. This is the identification trick:
+  # pooling the fuel effect across circuits with different stint structures
+  # is what breaks its collinearity with tyre age.
+  pool_across_circuits: true
+  reference_lap_km: 5.0
+
+degradation:
+  # Curve shape per compound. "linear" is a constant loss per lap of age.
+  # "quadratic" adds a convex term for the cliff. We fit both and report the
+  # comparison in the model card; quadratic is the default.
+  shape: quadratic
+
+  # Age is centred and scaled so the intercept means "pace on a fresh tyre"
+  # and the priors below are on a comparable scale across circuits.
+  age_scale_laps: 20.0
+
+sampler:
+  # Conditionally-conjugate Gibbs sampler, see pitwall/degradation/gibbs.py.
+  # Every full conditional is available in closed form, so there is no tuning
+  # and no compiler dependency.
+  chains: 4
+  draws: 2000
+  warmup: 1000
+  thin: 1
+
+priors:
+  # Population-level (across-circuit) mean and spread for each compound's
+  # degradation coefficients.
+  mu_deg_mean: 0.0
+  mu_deg_sd: 0.5
+  tau_deg_scale: 0.25      # half-Cauchy scale on between-circuit sd
+  driver_sd_scale: 0.40    # half-Cauchy scale on driver random-effect sd
+  sigma_scale: 0.50        # half-Cauchy scale on residual lap-time sd
+
+diagnostics:
+  # Fit is rejected if any monitored parameter breaches these.
+  max_rhat: 1.01
+  min_ess: 400

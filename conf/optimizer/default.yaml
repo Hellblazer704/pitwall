@@ -1,0 +1,51 @@
+search:
+  # Stop counts to enumerate. Anything above 3 is only competitive when the
+  # pit loss is very low, but we let the data say so rather than assuming.
+  stop_counts: [1, 2, 3]
+
+  # Candidate pit laps are enumerated on this grid rather than every lap, then
+  # the best few are refined lap by lap. Full enumeration of 2-stop windows on
+  # a 60-lap race is ~1700 candidates before compound sequences.
+  lap_grid_step: 3
+  refine_top_k: 12
+  refine_radius_laps: 3
+
+  # Stints shorter than this are not viable outside of an SC reaction.
+  min_stint_laps: 6
+
+  # Regulation: a dry race must use at least two different slick compounds.
+  enforce_two_compound_rule: true
+
+monte_carlo:
+  # Races simulated per candidate strategy in the screening pass.
+  n_races_screen: 2000
+  # And for the finalists, which is what the reported distributions come from.
+  n_races_final: 12000
+  # Common random numbers: every candidate is evaluated against the same
+  # sampled race conditions, so differences between candidates are not noise.
+  common_random_numbers: true
+
+objective:
+  # "expected_points" scores against the championship points table, which is
+  # what teams actually maximise. "mean_position" and "p_podium" available too.
+  primary: expected_points
+  # Reported alongside the primary objective regardless.
+  report:
+    - mean_position
+    - median_position
+    - p_win
+    - p_podium
+    - p_points
+    - position_distribution
+
+reactive:
+  # Online policy. When a neutralisation deploys, re-optimise the remainder of
+  # the race from the current state.
+  enabled: true
+  # Do not react to a deployment inside this many laps of the end.
+  min_laps_remaining: 8
+  # A reactive stop is only taken if it beats staying out by this margin in
+  # expected points, which stops the policy churning on noise.
+  switch_threshold_points: 0.15
+  # Races simulated per branch of the online decision.
+  n_races_decision: 3000

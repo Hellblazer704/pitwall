@@ -1,0 +1,81 @@
+# Race simulator. Every switch here has a corresponding entry in DESIGN.md
+# giving the data it was fitted or calibrated from.
+
+n_cars: 20
+
+degradation:
+  # "posterior" draws a fresh parameter vector per simulated race, so the
+  # ensemble carries model uncertainty as well as race-to-race noise.
+  # "posterior_mean" collapses to a point estimate (used by the ablation).
+  source: posterior
+  stochastic: true
+
+pit:
+  # Pit-lane loss is per circuit (conf/circuit/*.yaml). The variance here is
+  # the stop itself: crew execution, release, and the odd slow wheel gun.
+  stop_time_mean_s: 2.45
+  stop_time_sd_s: 0.35
+  # Fat right tail. With this probability the stop is botched and loses extra.
+  botch_prob: 0.020
+  botch_extra_mean_s: 6.0
+  # Under SC/VSC the field is slowed, so the time lost relative to rivals is
+  # only a fraction of the green-flag loss. Fitted per regime in DESIGN.md.
+  sc_loss_multiplier: 0.42
+  vsc_loss_multiplier: 0.58
+
+traffic:
+  # Time lost per lap when running within dirty_air_threshold_s of the car
+  # ahead, as a function of gap. Piecewise: full loss inside the DRS-less
+  # wake, decaying to zero at the threshold.
+  dirty_air_threshold_s: 1.6
+  max_loss_s: 0.45
+  # Extra one-off cost of emerging from the pits into a pack rather than
+  # clean air, on top of the per-lap dirty-air term.
+  emergence_penalty_s: 0.30
+
+overtake:
+  # P(pass completed on a given lap) = logistic(a + b * pace_delta) scaled by
+  # the circuit's overtaking difficulty multiplier. Fitted from position
+  # changes on green-flag laps, see DESIGN.md "Overtaking".
+  intercept: -2.20
+  pace_delta_coef: 2.35
+  # A failed pass attempt still costs the attacker time.
+  failed_attempt_cost_s: 0.15
+  # Cars cannot pass in the first laps after a restart lockout.
+  min_gap_to_attempt_s: 1.2
+
+safety_car:
+  # Per-lap hazard of a deployment, fitted per circuit with partial pooling
+  # towards the global rate. Lap 1 carries its own elevated rate.
+  enabled: true
+  lap1_multiplier: 3.4
+  # Deployments are much likelier early; hazard decays over race distance.
+  decay_per_race_fraction: 0.55
+  sc_duration_laps_mean: 3.6
+  sc_duration_laps_sd: 1.4
+  vsc_duration_laps_mean: 2.1
+  vsc_duration_laps_sd: 0.9
+  # Share of neutralisations that are full SC rather than VSC.
+  full_sc_share: 0.46
+  # Lap time multiplier while the regime is active.
+  sc_lap_time_multiplier: 1.42
+  vsc_lap_time_multiplier: 1.33
+  # Field is bunched to this gap behind the leader under a full SC.
+  sc_bunch_gap_s: 1.1
+
+reliability:
+  # Per-lap retirement hazard. Split into car failures (constant hazard) and
+  # incident retirements (elevated on lap 1 and under yellow).
+  enabled: true
+  mechanical_per_lap: 0.00075
+  incident_per_lap: 0.00060
+  lap1_incident_prob: 0.012
+
+pace:
+  # Race-pace spread between cars when not supplied explicitly, in seconds
+  # per lap relative to the fastest car.
+  field_spread_s: 1.30
+  # Lap-to-lap driver execution noise, on top of the model residual.
+  driver_noise_sd_s: 0.16
+  # Start: positions gained/lost off the line before lap 1 is scored.
+  start_position_sd: 1.15

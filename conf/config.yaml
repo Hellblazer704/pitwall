@@ -1,0 +1,23 @@
+defaults:
+  - data: default
+  - degradation: default
+  - simulator: default
+  - optimizer: default
+  - _self_
+
+# Global seed. Every stochastic component derives its stream from this via
+# numpy SeedSequence spawning, so a run is reproducible end to end.
+seed: 20260201
+
+paths:
+  root: ${hydra:runtime.cwd}
+  fastf1_cache: ${paths.root}/data/fastf1_cache
+  raw: ${paths.root}/data/raw
+  processed: ${paths.root}/data/processed
+  artifacts: ${paths.root}/artifacts
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false

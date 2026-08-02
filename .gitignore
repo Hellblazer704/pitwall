@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# FastF1 downloads and everything derived from them. Regenerate with
+# `python -m pitwall.cli ingest`; the raw cache is several GB.
+data/fastf1_cache/
+data/raw/
+data/processed/
+
+# Fitted posteriors and run artefacts
+artifacts/
+outputs/
+multirun/
+
+.DS_Store
+.idea/
+.vscode/
+.claude/

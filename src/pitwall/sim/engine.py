@@ -371,7 +371,10 @@ def simulate_ensemble(
         stop_noise = rng.normal(0.0, stop_sd, size=shape)
         botched = rng.random(shape) < params.botch_prob
         botch_cost = botched * rng.exponential(params.botch_extra_mean_s, size=shape)
-        loss = params.pit_loss_s + stop_noise + botch_cost
+        # Clipped at zero. The empirical spread is wide enough at some circuits
+        # that the far tail of the normal would otherwise hand out a pit stop
+        # that gains time, which is not a thing.
+        loss = np.maximum(params.pit_loss_s + stop_noise + botch_cost, 0.0)
 
         discount = np.where(
             regime == SAFETY_CAR,

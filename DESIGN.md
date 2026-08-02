@@ -145,12 +145,23 @@ measured across the in-lap and out-lap pair and therefore already contains it.
 
 ### Stop execution
 
-**Calibrated:** 2.45s mean stationary time, sd 0.35s, plus a 2% chance of a
-botched stop costing an extra ~6s on an exponential tail.
+**Estimated per circuit**, with a calibrated floor. Stop-to-stop variability uses
+the empirical spread of measured pit losses at that venue — 3.8s at Bahrain, for
+instance — falling back to a configured 0.35s execution sd where the circuit
+estimate is tighter than that. The empirical number is the better quantity: it
+carries pit-lane traffic and in/out-lap execution as well as the crew.
 
-Fat-tailed rather than Gaussian on purpose. A slow wheel gun or an unsafe release
-is not a mild perturbation of a normal stop, and the tail is what makes each
-extra stop carry genuine execution risk. Ablated in Component 5.
+On top of that, a 2% chance of a botched stop costing an extra ~6s on an
+exponential tail. Fat-tailed rather than Gaussian on purpose — a slow wheel gun
+or an unsafe release is not a mild perturbation of a normal stop, and the tail is
+what makes each extra stop carry genuine execution risk.
+
+**Known double-count:** the empirical spread is measured over stops that include
+some botched ones, so adding an explicit botch tail counts part of that twice.
+The effect is small and its sign is the safe one — the pit model is slightly
+over-dispersed, which makes extra stops look riskier rather than free. Removing
+it properly means estimating the botch rate and the clean-stop spread separately
+from the same stop distribution, which is worth doing and is not done here.
 
 ### Neutralisation discount
 

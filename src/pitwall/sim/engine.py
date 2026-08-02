@@ -236,10 +236,19 @@ def _dirty_air_loss(gap: np.ndarray, params: SimParams) -> np.ndarray:
 
 
 def _overtake_probability(pace_delta: np.ndarray, params: SimParams) -> np.ndarray:
-    """P(pass completed this lap) given the attacker's pace advantage."""
-    logit = params.overtake_intercept + params.overtake_pace_coef * pace_delta
-    base = 1.0 / (1.0 + np.exp(-np.clip(logit, -30.0, 30.0)))
-    return np.clip(base * params.overtake_difficulty, 0.0, 1.0)
+    """P(pass completed this lap) given the attacker's pace advantage.
+
+    The circuit enters in logit space, not as a multiplier on the probability.
+    A multiplier cannot represent a circuit being hard to pass at: scaling an
+    already-saturated probability by 0.6 still leaves it near certain, which is
+    how Monaco ended up letting cars through.
+    """
+    logit = (
+        params.overtake_intercept
+        + params.overtake_pace_coef * pace_delta
+        + params.overtake_logit_offset
+    )
+    return 1.0 / (1.0 + np.exp(-np.clip(logit, -30.0, 30.0)))
 
 
 def simulate_ensemble(

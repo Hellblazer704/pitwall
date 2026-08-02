@@ -77,6 +77,7 @@ ABLATIONS: dict[str, dict[str, object]] = {
         # Passing becomes free: the overtake probability saturates at 1 so the
         # position constraint never binds.
         "overtake_intercept": 12.0,
+        "overtake_logit_offset": 0.0,
     },
     "no_pit_variance": {"pit_loss_sd_s": 0.0, "stop_time_sd_s": 0.0, "botch_prob": 0.0},
     "no_reliability": {"reliability_enabled": False},
@@ -90,6 +91,7 @@ ABLATIONS: dict[str, dict[str, object]] = {
         "emergence_penalty_s": 0.0,
         "min_following_gap_s": 0.0,
         "overtake_intercept": 12.0,
+        "overtake_logit_offset": 0.0,
         "pit_loss_sd_s": 0.0,
         "stop_time_sd_s": 0.0,
         "botch_prob": 0.0,

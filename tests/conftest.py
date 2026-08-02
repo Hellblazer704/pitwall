@@ -107,7 +107,7 @@ def make_params(posterior: DegradationPosterior, **overrides: object) -> SimPara
         min_following_gap_s=0.35,
         overtake_intercept=-2.2,
         overtake_pace_coef=2.35,
-        overtake_difficulty=1.0,
+        overtake_logit_offset=0.0,
         failed_attempt_cost_s=0.15,
         min_gap_to_attempt_s=1.2,
         sc_enabled=True,

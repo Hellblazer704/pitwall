@@ -141,7 +141,7 @@ def test_traffic_constraint_prevents_driving_through_cars(posterior) -> None:
         deg_stochastic=False,
         start_position_sd=0.0,
         overtake_intercept=-50.0,
-        overtake_difficulty=0.0,
+        overtake_logit_offset=-6.0,
     )
     index = {c: params.posterior.compound_index(c) for c in params.posterior.compounds}
     strategies = [Strategy(compounds=("MEDIUM", "HARD"), stops=(20,)) for _ in range(2)]
@@ -154,7 +154,7 @@ def test_traffic_constraint_prevents_driving_through_cars(posterior) -> None:
     stuck_rate = float((blocked.finish_position[:, 1] == 2).mean())
 
     free = simulate_ensemble(
-        params.without(overtake_intercept=12.0, overtake_difficulty=1.0, min_following_gap_s=0.0),
+        params.without(overtake_intercept=12.0, overtake_logit_offset=0.0, min_following_gap_s=0.0),
         np.random.default_rng(5),
         100,
         grid,

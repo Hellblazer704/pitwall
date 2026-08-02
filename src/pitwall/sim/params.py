@@ -87,7 +87,8 @@ class SimParams:
     # Overtaking
     overtake_intercept: float
     overtake_pace_coef: float
-    overtake_difficulty: float
+    # Per-circuit shift in logit space, fitted from real attack events.
+    overtake_logit_offset: float
     failed_attempt_cost_s: float
     min_gap_to_attempt_s: float
 
@@ -165,9 +166,11 @@ def load_sim_params(
         dirty_air_max_loss_s=float(sim.traffic.max_loss_s),
         emergence_penalty_s=float(sim.traffic.emergence_penalty_s),
         min_following_gap_s=0.35,
-        overtake_intercept=float(sim.overtake.intercept),
-        overtake_pace_coef=float(sim.overtake.pace_delta_coef),
-        overtake_difficulty=float(record.get("overtake_difficulty", 1.0)),
+        # Fitted values win; the config entries are only a fallback for a
+        # profile table built before the overtake model existed.
+        overtake_intercept=float(record.get("overtake_intercept", sim.overtake.intercept)),
+        overtake_pace_coef=float(record.get("overtake_pace_coef", sim.overtake.pace_delta_coef)),
+        overtake_logit_offset=float(record.get("overtake_logit_offset", 0.0)),
         failed_attempt_cost_s=float(sim.overtake.failed_attempt_cost_s),
         min_gap_to_attempt_s=float(sim.overtake.min_gap_to_attempt_s),
         sc_enabled=bool(sim.safety_car.enabled),

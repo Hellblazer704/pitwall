@@ -33,9 +33,9 @@ season it has never seen:
 
 | | |
 |---|---:|
-| Mean absolute finishing-position error | **2.45** |
-| Spearman rank correlation | **0.806** |
-| Brier score, P(points) | **0.1179** |
+| Mean absolute finishing-position error | **2.47** |
+| Spearman rank correlation | **0.804** |
+| Brier score, P(points) | **0.1199** |
 | ...against a climatology baseline of | 0.250 |
 
 And it quantifies what realism is worth: Component 5 strips out safety cars,
@@ -250,14 +250,16 @@ in DESIGN.md.
 
 Kept here rather than buried, and expanded in DESIGN.md:
 
-- **The optimiser is wrong at Monza, measurably.** All twenty cars one-stopped
-  there in 2025; the model recommends a two-stop. The cause is soft-tyre
-  selection bias — teams run softs short *because* they degrade, so the observed
-  soft laps are the ones where the tyre was working, and the fitted curve is
-  optimistic. Melbourne has five soft laps in three seasons. Forcing wear to be
-  non-decreasing in tyre age (the raw fit had a soft *gaining* 0.16 s/lap over
-  its first ten laps) cut the two-stop's margin by ~40% but did not flip it.
-  Details and the remaining suspects in DESIGN.md.
+- **The optimiser is still wrong at Monza, by a shrinking margin.** All twenty
+  cars one-stopped there in 2025; the model recommends a two-stop. Decomposing
+  it showed the tyre model was *not* at fault — on pure time arithmetic it
+  prefers the one-stop by ~9 seconds — and that the preference came entirely
+  from overtaking being too easy. Two fixes (monotone wear, and fitting the
+  overtake model from 16,004 real attack events) took the error from +0.39
+  expected points to **+0.145**, under 1% of the base. Not flipped. Remaining
+  suspects, in order: the simulated field never reacts to a rival's undercut,
+  tyre allocation is unconstrained, and the pit-loss estimate is biased slightly
+  low. Full decomposition in DESIGN.md.
 - **Safety cars are exogenous.** They are caused by incidents in reality, and
   incidents correlate with close racing. The simulator cannot represent "a
   deployment is more likely because the field is bunched".

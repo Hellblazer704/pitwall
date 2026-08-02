@@ -159,22 +159,45 @@ one-stopped**. The optimiser recommends a two-stop, and before the monotonicity
 constraint its refined candidate set contained no one-stop at all. Scored under
 the model for Norris from P2:
 
-| strategy | expected points (before) | (after constraint) |
-|---|---:|---:|
-| 2-stop S-S-M @22,43 | 19.74 | 18.83 |
-| best 1-stop (S-M @20) | 19.35 | 18.60 |
-| what he actually ran (M-S @46) | 16.59 | 16.53 |
+**Diagnosis.** The two suspects were separable, and it was worth doing. Running
+each strategy with every racing effect switched off leaves only stint-length
+arithmetic:
 
-The constraint cut the two-stop's margin by roughly 40%, from 0.39 points to
-0.23, but did not flip the call. Two suspects remain and I have not separated
-them: residual soft-tyre optimism, and Monza's overtaking index of 1.20, which
-may overstate how cheaply a car recovers track position after an extra stop —
-a two-stop is only attractive if you can pass on the way back.
+| strategy | stints | wear cost | pit cost | total |
+|---|---|---:|---:|---:|
+| 1-stop S-M @20 | 20, 33 | 40.1s | 24.8s | **64.9s** |
+| 1-stop M-H @25 | 25, 28 | 41.3s | 24.8s | 66.1s |
+| 2-stop S-S-M @22,43 | 22, 21, 10 | 24.3s | 49.6s | 73.9s |
 
-Correcting the first needs a selection model on the compound choice itself,
-which is out of scope here. This is the clearest open failure in the project and
-it is measurable rather than hypothetical, which is at least the right kind of
-problem to be left with.
+**The tyre model is not at fault.** On pure time it prefers the one-stop by ~9
+seconds, analytically and in the simulator. The two-stop preference was created
+entirely by the *racing* model, and toggling features one at a time confirmed
+it: making passing very hard collapsed the two-stop's advantage from +0.233
+expected points to **+0.002**.
+
+That pointed straight at the overtaking saturation described above. Two fixes,
+measured on the same comparison:
+
+| | 2-stop minus best 1-stop |
+|---|---:|
+| original | +0.39 |
+| after monotone wear constraint | +0.23 |
+| after fitting the overtake model | **+0.145** |
+
+**Still not flipped.** The error is down 63% and the model is now nearly
+indifferent — 0.145 points on a base of 18.6, under 1%, and a mean finishing
+position difference of 0.02 places. But reality was unanimous, not indifferent,
+so something still under-charges the extra stop.
+
+What I have not modelled, in order of suspicion: the field is static, running
+fixed plans that never react to a rival's undercut, so an extra stop faces no
+defensive response; tyre allocation is unconstrained, and a team may simply not
+have the soft sets a two-stop needs; and the pit-loss estimate credits the
+out-lap with a fresh-tyre advantage it measures against a race-median baseline,
+which biases it downward by a few tenths.
+
+This is the clearest open failure in the project. It is now measured, decomposed
+and 63% smaller, which is a better place than it started, but it is not fixed.
 
 ---
 
@@ -278,21 +301,54 @@ any strategy that gives up track position. It is the `no_traffic` ablation.
 
 ### Overtaking
 
-**Estimated per circuit, assumed functional form.**
+**Estimated**, from 16,004 real attack events.
 
-`P(pass | lap) = logistic(a + b · pace_delta) × difficulty_c`, where
-`difficulty_c` is the circuit's on-track pass rate relative to the median,
-estimated from position changes between consecutive green laps where neither lap
-was a pit lap, then clipped to [0.15, 3.0].
+`P(pass | lap) = logistic(a + b · pace_delta + offset_c)`, fitted by penalised
+logistic regression on events built from the lap data: a car that began a green
+lap within 1.2s of the car directly ahead *on the road* (from lap start
+timestamps, not classification), and whether it was in front of that specific
+car by the end of the next lap.
 
-Sanity: Monaco 0.62 (hardest), Marina Bay 0.74, Montréal 0.76; Las Vegas 1.44,
-Spa 1.38, Barcelona 1.21. Exactly the right ordering.
+Fitted: **a = −1.887, b = 1.463** per second per lap of pace advantage, with
+per-circuit offsets in logit space.
 
-The intercept and pace coefficient are calibrated rather than jointly fitted,
-because a proper fit needs wheel-to-wheel event data this project does not have.
-Counting net position gains undercounts a pass that is immediately re-passed,
-which is why the result is used as a relative index across circuits, not an
-absolute probability.
+This replaced a hand-calibrated version, and both things that were wrong with it
+mattered:
+
+**The logistic saturated.** The hand-set slope of 2.35 tracked the data well up
+to about 1 s/lap of advantage and then ran away. Observed pass rate above
+1 s/lap is **0.53**; the old parameters pushed it towards certainty. That is
+exactly the regime a car on fresh tyres immediately after an extra stop lives
+in, so the simulator let it carve back through the field almost for free — and
+an extra pit stop stopped costing anything. The fitted slope of 1.463 matches
+the observed flattening.
+
+**The circuit index measured the wrong quantity.** Passes per racing lap
+conflates "hard to pass here" with "the field was spread out here". The rate
+*conditional on a genuine attack* is what the model needs, and it ranks circuits
+very differently:
+
+| circuit | observed pass rate | fitted logit offset | old index |
+|---|---:|---:|---:|
+| Monaco | 0.019 | −1.41 | 0.62 |
+| Marina Bay | 0.080 | −0.89 | 0.74 |
+| Montréal | 0.096 | −0.58 | 0.76 |
+| Monza | 0.165 | +0.08 | 1.20 |
+| Barcelona | 0.299 | +0.67 | 1.21 |
+
+Monaco is 9x harder to pass at than Barcelona in the data; the old multiplier
+had it as a factor of two. And a multiplier cannot express "nearly impossible"
+at all — scaling an already-saturated probability by 0.6 still leaves it near
+certain, which is why the circuit now enters in logit space.
+
+**Honest cost:** this is neutral-to-marginally-worse on the backtest (MAE 2.45 →
+2.47, Brier 0.1179 → 0.1199, both within noise). That is expected — the backtest
+replays the strategies teams actually ran, where nobody is making a desperate
+recovery drive. The change matters to the *search*, which is where the error it
+fixes actually lived.
+
+Remaining caveat: counting net position gains undercounts a pass that is
+immediately re-passed, so this is a lower bound on wheel-to-wheel activity.
 
 ### Reliability
 

@@ -293,20 +293,31 @@ ablation arms for exactly that reason.
 
 ### 7. How do you know your overtaking model is right?
 
-I know the *relative* index is right and the absolute probability is calibrated
-rather than fitted, which is a real distinction.
+It is fitted, from 16,004 real attack events: a car that began a green lap
+within 1.2s of the car directly ahead on the road, and whether it got past by
+the end of the next lap. Penalised logistic regression gives an intercept of
+−1.887, a slope of 1.463 per s/lap of pace advantage, and per-circuit offsets.
 
-The per-circuit difficulty comes from counting net position gains between
-consecutive green laps where neither lap was a pit lap. The ordering it produces
-is Monaco 0.62, Marina Bay 0.74, Montréal 0.76 at the hard end; Las Vegas 1.44,
-Spa 1.38, Barcelona 1.21 at the easy end. That is exactly right, and it fell out
-of the data rather than being put in.
+It was *not* fitted originally — it was hand-calibrated — and finding out how
+wrong that was is the most useful thing I did to this project. Two failures:
 
-The intercept and pace coefficient of the logistic are calibrated, not jointly
-fitted, because a proper fit needs wheel-to-wheel event data — position changes
-undercount a pass that is immediately re-passed. So the model is trustworthy for
-"is this circuit harder to pass at than that one" and less so for "what is the
-absolute probability of this specific move".
+The logistic **saturated**. The hand-set slope tracked the data well up to about
+1 s/lap of advantage and then ran away towards certainty, where the observed
+rate above 1 s/lap is 0.53. That is exactly the regime a car on brand new tyres
+after an extra stop is in, so it carved through the field for free and an extra
+pit stop stopped costing anything. That was the whole Monza bug.
+
+The **circuit index measured the wrong quantity**. Passes per racing lap
+conflates "hard to pass here" with "the field was spread out here". Conditional
+on a real attack, Monaco's pass rate is 0.019 against Barcelona's 0.299 — a
+factor of fifteen, where the old index had a factor of two. And a multiplier
+cannot express near-impossibility at all: scaling an already-saturated
+probability by 0.6 still leaves it near certain. The circuit now enters in logit
+space.
+
+What I would still not claim: the absolute rate for one specific move. Counting
+net position gains undercounts a pass that is immediately re-passed, so this is
+a lower bound on wheel-to-wheel activity.
 
 ### 8. Your safety cars are exogenous. Isn't that a serious problem?
 

@@ -58,11 +58,14 @@ class CircuitProfile:
     # Mean duration of one deployment, in laps.
     sc_duration_laps: float
     vsc_duration_laps: float
-    # On-track passes per racing lap, across the whole field. Higher means
-    # easier to pass; feeds the overtaking model's per-circuit multiplier.
+    # On-track passes per racing lap across the whole field. Kept as a
+    # descriptive statistic; the simulator uses the fitted logit offset below,
+    # because passes-per-lap conflates "hard to pass here" with "the field was
+    # spread out here".
     passes_per_lap: float
-    # Multiplier on the baseline overtake probability, 1.0 at an average track.
     overtake_difficulty: float
+    # Shift in logit space applied to P(pass), fitted from real attack events.
+    overtake_logit_offset: float
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -240,6 +243,143 @@ def estimate_overtaking(laps: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def overtake_events(laps: pd.DataFrame, attack_gap_s: float = 1.2) -> pd.DataFrame:
+    """Real attack events: was the car behind able to get past?
+
+    An event is a car that began a green lap within ``attack_gap_s`` of the car
+    directly ahead on the road. It succeeds if the attacker is in front of that
+    specific car by the end of the following lap.
+
+    Identifying "the car ahead" from lap start timestamps rather than from
+    classification is what makes this the right population: dirty air and
+    overtaking depend on who is physically in front, which is not the same as
+    who is ahead on the timing screen once cars are lapped.
+    """
+    from pitwall.ingest.clean import add_gap_ahead
+
+    work = add_gap_ahead(laps)
+    work = work.loc[
+        (work["track_status"].fillna("") == _GREEN)
+        & work["position"].notna()
+        & work["lap_start_s"].notna()
+        & (~work["is_in_lap"])
+        & (~work["is_out_lap"])
+        & (work["lap_number"] > 1)
+    ].copy()
+    if work.empty:
+        return work
+
+    # Each driver's clean-air pace in that race, so the attacker's advantage is
+    # a property of the cars rather than of the lap they happened to be having.
+    pace = (
+        work.groupby(["season", "round", "driver"])["lap_time_s"]
+        .median()
+        .rename("pace")
+        .reset_index()
+    )
+
+    work = work.sort_values(["season", "round", "lap_number", "lap_start_s"])
+    grouped = work.groupby(["season", "round", "lap_number"], sort=False)
+    work["ahead_driver"] = grouped["driver"].shift(1)
+
+    attacks = work.loc[
+        work["ahead_driver"].notna() & work["gap_ahead_s"].between(0.0, attack_gap_s, "neither")
+    ].copy()
+    if attacks.empty:
+        return attacks
+
+    nxt = work.loc[:, ["season", "round", "lap_number", "driver", "position"]].copy()
+    nxt["lap_number"] -= 1
+    attacks = attacks.merge(
+        nxt.rename(columns={"position": "next_pos"}),
+        on=["season", "round", "lap_number", "driver"],
+        how="inner",
+    )
+    attacks = attacks.merge(
+        nxt.rename(columns={"driver": "ahead_driver", "position": "ahead_next_pos"}),
+        on=["season", "round", "lap_number", "ahead_driver"],
+        how="inner",
+    )
+    attacks["passed"] = attacks["next_pos"] < attacks["ahead_next_pos"]
+
+    attacks = attacks.merge(pace, on=["season", "round", "driver"], how="left")
+    attacks = attacks.merge(
+        pace.rename(columns={"driver": "ahead_driver", "pace": "ahead_pace"}),
+        on=["season", "round", "ahead_driver"],
+        how="left",
+    )
+    attacks["pace_delta"] = attacks["ahead_pace"] - attacks["pace"]
+    return attacks.dropna(subset=["pace_delta"])
+
+
+def fit_overtake_model(
+    attacks: pd.DataFrame, ridge: float = 8.0
+) -> tuple[float, float, pd.DataFrame]:
+    """Logistic fit of P(pass) on the attacker's pace advantage, per circuit.
+
+    Returns ``(intercept, pace_coefficient, per-circuit logit offsets)``.
+
+    Replaces what used to be a hand-set intercept and slope multiplied by a
+    per-circuit index derived from raw position changes. Two things were wrong
+    with that and both mattered:
+
+    *The logistic saturated.* Calibrated by hand it matched the data well up to
+    about 1 s/lap of advantage and then ran away, predicting a near-certain pass
+    where the data says 53%. That is exactly the regime a car on fresh tyres
+    after an extra stop is in, so the simulator let it carve back through the
+    field almost for free -- and an extra stop stopped costing anything.
+
+    *The circuit index measured the wrong thing.* Passes per racing lap
+    conflates "hard to pass here" with "the field was spread out here". The
+    conditional rate given a genuine attack is the quantity the model needs, and
+    it ranks circuits very differently: Monaco is 0.019 against a 0.17 median,
+    where the old index had it at 0.62.
+
+    Circuit offsets are fitted in logit space with an L2 penalty, which is
+    ridge-as-partial-pooling: a circuit with few attacks is pulled towards the
+    field average rather than trusting a noisy rate.
+    """
+    from scipy.optimize import minimize
+
+    circuits = sorted(attacks["circuit"].dropna().unique().tolist())
+    index = {name: i for i, name in enumerate(circuits)}
+    circuit_idx = attacks["circuit"].map(index).to_numpy()
+    delta = attacks["pace_delta"].to_numpy(dtype=float)
+    y = attacks["passed"].to_numpy(dtype=float)
+    n_c = len(circuits)
+
+    def negative_log_likelihood(theta: np.ndarray) -> float:
+        a, b = theta[0], theta[1]
+        offsets = theta[2:]
+        logit = a + b * delta + offsets[circuit_idx]
+        # log(1 + exp(x)) computed stably.
+        loss = np.logaddexp(0.0, logit) - y * logit
+        return float(loss.sum() + ridge * np.sum(offsets**2))
+
+    start = np.concatenate([[-2.0, 1.5], np.zeros(n_c)])
+    result = minimize(negative_log_likelihood, start, method="L-BFGS-B")
+    intercept, coef = float(result.x[0]), float(result.x[1])
+    offsets = result.x[2:]
+
+    counts = attacks.groupby("circuit").size().reindex(circuits).fillna(0).astype(int)
+    rates = attacks.groupby("circuit")["passed"].mean().reindex(circuits)
+    table = pd.DataFrame(
+        {
+            "circuit": circuits,
+            "overtake_logit_offset": offsets,
+            "n_attacks": counts.to_numpy(),
+            "observed_pass_rate": rates.to_numpy(),
+        }
+    )
+    log.info(
+        "overtake model: intercept %.3f, pace coef %.3f, from %d attack events",
+        intercept,
+        coef,
+        len(attacks),
+    )
+    return intercept, coef, table
+
+
 def build_circuit_profiles(tables: RaceTables) -> pd.DataFrame:
     """Assemble the per-circuit table from raw ingest output."""
     laps = tables.laps
@@ -259,11 +399,28 @@ def build_circuit_profiles(tables: RaceTables) -> pd.DataFrame:
         .rename(columns={"lap_time_s": "median_green_lap_s"})
     )
 
+    # Overtaking is fitted from real attack events rather than indexed from
+    # raw position changes; see fit_overtake_model for why that distinction
+    # turned out to matter.
+    attacks = overtake_events(laps)
+    if len(attacks) > 200:
+        intercept, pace_coef, ot = fit_overtake_model(attacks)
+    else:  # pragma: no cover - only with a tiny dataset
+        log.warning("only %d attack events; falling back to defaults", len(attacks))
+        intercept, pace_coef = -2.2, 1.5
+        ot = pd.DataFrame(
+            columns=["circuit", "overtake_logit_offset", "n_attacks", "observed_pass_rate"]
+        )
+
     profiles = (
         neut.merge(pit, on="circuit", how="left")
         .merge(over, on="circuit", how="left")
         .merge(pace, on="circuit", how="left")
+        .merge(ot, on="circuit", how="left")
     )
+    profiles["overtake_intercept"] = intercept
+    profiles["overtake_pace_coef"] = pace_coef
+    profiles["overtake_logit_offset"] = profiles["overtake_logit_offset"].fillna(0.0)
 
     # Shrink the noisy estimates towards their pooled means.
     races = profiles["n_races"].astype(float).clip(lower=1)
@@ -308,5 +465,6 @@ def profiles_to_records(profiles: pd.DataFrame) -> dict[str, CircuitProfile]:
             vsc_duration_laps=float(row["vsc_duration_laps"]),
             passes_per_lap=float(row["passes_per_lap"]),
             overtake_difficulty=float(row["overtake_difficulty"]),
+            overtake_logit_offset=float(row.get("overtake_logit_offset", 0.0)),
         )
     return out

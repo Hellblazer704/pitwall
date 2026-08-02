@@ -74,6 +74,13 @@ will have part of it absorbed into `phi`.
 Because they are collinear they are drawn as a single joint block. In separate
 Gibbs blocks the chain random-walks along the ridge: measured Rhat 2.24, ESS 19.
 
+**Sanity check the model passes convincingly.** Monaco comes out at −5.03s across
+a race distance (90% CI −5.89 to −4.19), an order of magnitude more evolution
+than anywhere else; every other circuit sits between −0.9s and −0.1s with
+intervals spanning zero. Monaco is the one circuit on the calendar famous for
+rubbering in dramatically — a dusty street track that starts green — and the
+model found that from lap times alone, with no circuit-type feature to lean on.
+
 ### Curve shape
 
 **Assumed:** quadratic in tyre age, with age centred before fitting.

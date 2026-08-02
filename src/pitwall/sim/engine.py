@@ -310,6 +310,15 @@ def simulate_ensemble(
     burn_per_lap = params.fuel_start_mass_kg / max(race_laps, 1)
     last_lap = race_laps if stop_after_lap is None else min(stop_after_lap, race_laps)
 
+    # Stop-to-stop variability. The per-circuit estimate is the empirical spread
+    # of measured pit losses at that venue, so it captures crew execution *and*
+    # pit-lane traffic and in/out-lap variation, which is what a strategy model
+    # wants. It is used when available, with the configured execution sd as the
+    # floor -- an estimate from a handful of stops at a new circuit can come out
+    # implausibly tight, and understating this variance is what makes an extra
+    # stop look risk-free.
+    stop_sd = max(params.stop_time_sd_s, params.pit_loss_sd_s)
+
     for lap in range(start_lap, last_lap):
         regime = schedule.regime[:, lap]  # (R,)
         alive = ~state.retired
@@ -359,7 +368,7 @@ def simulate_ensemble(
         # random numbers the optimiser relies on: two candidates would then be
         # compared against different sampled races and the difference between
         # them would be mostly Monte Carlo noise.
-        stop_noise = rng.normal(0.0, params.stop_time_sd_s, size=shape)
+        stop_noise = rng.normal(0.0, stop_sd, size=shape)
         botched = rng.random(shape) < params.botch_prob
         botch_cost = botched * rng.exponential(params.botch_extra_mean_s, size=shape)
         loss = params.pit_loss_s + stop_noise + botch_cost

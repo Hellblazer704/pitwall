@@ -48,6 +48,9 @@ class CircuitProfile:
     # Total time lost pitting under green, relative to staying out: pit-lane
     # transit plus the stationary time.
     pit_loss_s: float
+    # Spread of that loss across stops at this circuit. Bundles crew execution,
+    # pit-lane traffic and in/out-lap variation, which is exactly the
+    # stop-to-stop uncertainty the simulator should sample.
     pit_loss_sd_s: float
     # Neutralisation frequency, per race.
     sc_per_race: float

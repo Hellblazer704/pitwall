@@ -11,8 +11,11 @@ degradation:
   stochastic: true
 
 pit:
-  # Pit-lane loss is per circuit (conf/circuit/*.yaml). The variance here is
-  # the stop itself: crew execution, release, and the odd slow wheel gun.
+  # Pit-lane loss and its spread are both estimated per circuit from in-lap /
+  # out-lap pairs. The value below is only a floor on that spread: a circuit
+  # with few observed stops can produce an implausibly tight estimate, and
+  # understating stop-to-stop variance is what makes an extra stop look
+  # risk-free.
   stop_time_mean_s: 2.45
   stop_time_sd_s: 0.35
   # Fat right tail. With this probability the stop is botched and loses extra.

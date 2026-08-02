@@ -196,7 +196,12 @@ def run_ablation(
     cfg: DictConfig,
     races: list[tuple[int, int]] | None = None,
     n_races: int | None = None,
-    cars: tuple[int, ...] = (0, 4, 9),
+    # Cars are indexed by finishing order. A dominant winner's strategy barely
+    # matters and a backmarker's matters even less, so the sample is taken from
+    # the front-runner, the midfield and the lower midfield, which is where
+    # strategy actually has leverage and where teams spend their simulation
+    # budget.
+    cars: tuple[int, ...] = (2, 7, 12),
 ) -> AblationResult:
     """Run every ablation arm over a set of races and score the regret."""
     paths = Paths.from_config(cfg).ensure()

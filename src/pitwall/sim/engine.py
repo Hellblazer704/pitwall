@@ -103,7 +103,10 @@ class EnsembleState:
 
     @property
     def shape(self) -> tuple[int, int]:
-        return self.cum_time.shape  # type: ignore[return-value]
+        # Built explicitly rather than returning ndarray.shape, which is
+        # tuple[int, ...] and needs a cast that different numpy versions
+        # disagree about needing.
+        return int(self.cum_time.shape[0]), int(self.cum_time.shape[1])
 
     def subset(self, mask: np.ndarray) -> EnsembleState:
         """The state for a subset of races, as an independent copy.
@@ -345,7 +348,8 @@ def simulate_ensemble(
         )
         fuel = params.fuel_s_per_kg * burn_per_lap * (race_laps - lap)
 
-        noise_sd = params.driver_noise_sd_s
+        # Widens to an array when the residual scale varies by race.
+        noise_sd: float | np.ndarray = params.driver_noise_sd_s
         if params.deg_stochastic:
             noise_sd = np.sqrt(noise_sd**2 + resid_sd[:, None] ** 2)
         lap_time = car_pace + deg + fuel + rng.normal(0.0, 1.0, size=shape) * noise_sd

@@ -79,7 +79,9 @@ class NeutralisationSchedule:
         return int(self.regime.shape[1])
 
     def any_deployment(self) -> np.ndarray:
-        return self.deploy_lap.any(axis=1)
+        # asarray because ndarray.any() is typed as returning a scalar-or-array
+        # union: with axis= it is always an array, but the stubs cannot know it.
+        return np.asarray(self.deploy_lap.any(axis=1))
 
     def subset(self, mask: np.ndarray) -> NeutralisationSchedule:
         return NeutralisationSchedule(regime=self.regime[mask], deploy_lap=self.deploy_lap[mask])

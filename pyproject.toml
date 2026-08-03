@@ -79,7 +79,9 @@ ignore = [
 "tests/*" = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+# Deliberately not pinning python_version. Pinning it to 3.11 makes mypy parse
+# numpy 2.x stubs (which use 3.12 `type` statements) under 3.11 grammar, and it
+# dies with a syntax error when CI runs the 3.12 job.
 packages = ["pitwall"]
 mypy_path = "src"
 warn_unused_ignores = true

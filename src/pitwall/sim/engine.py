@@ -152,7 +152,7 @@ class EnsembleResult:
         """Probability of each finishing position, 1..n_cars."""
         size = n_cars or int(self.finish_position.shape[1])
         counts = np.bincount(self.positions_for(car), minlength=size + 1)[1 : size + 1]
-        return counts / max(counts.sum(), 1)
+        return counts / max(int(counts.sum()), 1)
 
 
 def _classify(state: EnsembleState) -> np.ndarray:

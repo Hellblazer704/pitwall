@@ -88,7 +88,7 @@ def _summarise(
 ) -> StrategyEvaluation:
     points = points_for(positions)
     counts = np.bincount(positions, minlength=n_cars + 1)[1 : n_cars + 1]
-    distribution = counts / max(counts.sum(), 1)
+    distribution = counts / max(int(counts.sum()), 1)
 
     return StrategyEvaluation(
         strategy=strategy,

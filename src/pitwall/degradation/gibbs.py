@@ -238,11 +238,11 @@ def run_chain(
     # Sufficient statistics that never change: X'X per cell, and the
     # normal-equation pieces for the scalar blocks.
     xtx = np.zeros((n_cells, 3, 3))
-    for a in range(3):
-        for b in range(a, 3):
-            s = _group_sums(columns[a] * columns[b], cell_idx, n_cells)
-            xtx[:, a, b] = s
-            xtx[:, b, a] = s
+    for i in range(3):
+        for j in range(i, 3):
+            s = _group_sums(columns[i] * columns[j], cell_idx, n_cells)
+            xtx[:, i, j] = s
+            xtx[:, j, i] = s
 
     group_counts = np.bincount(gi, minlength=n_g).astype(float)
     group_counts[group_counts == 0] = 1.0
@@ -362,10 +362,10 @@ def run_chain(
             precision[:, np.arange(pattern.n_cols), np.arange(pattern.n_cols)] += prior_prec_cell[
                 np.ix_(cells, cols)
             ]
-            b = xtr[np.ix_(cells, cols)] / sigma2 + (
+            rhs_cell = xtr[np.ix_(cells, cols)] / sigma2 + (
                 prior_prec_cell[np.ix_(cells, cols)] * prior_mean_cell[np.ix_(cells, cols)]
             )
-            B[np.ix_(cells, cols)] = _batched_normal(rng, precision, b)
+            B[np.ix_(cells, cols)] = _batched_normal(rng, precision, rhs_cell)
 
         # 4. population means -----------------------------------------------
         B_grid = B.reshape(n_c, n_k, 3)
